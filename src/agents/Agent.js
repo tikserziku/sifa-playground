@@ -1,0 +1,283 @@
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+
+const STATES = {
+  ROAM: 'roam',
+  FLEE: 'flee',
+  HUNT: 'hunt',
+  TAUNT: 'taunt',
+};
+
+export class Agent {
+  constructor(id, profile, scene, world) {
+    this.id = id;
+    this.profile = profile;
+    this.state = STATES.ROAM;
+    this.isIt = false;
+    this.score = 0;
+    this.cooldownUntil = 0;
+    this.tauntTimer = 0;
+    this.stuckFrames = 0;
+    this.speechText = '';
+    this.speechTimer = 0;
+
+    // AI decision (from Groq or heuristic)
+    this.decision = { moveX: 0, moveZ: 0, sprint: false };
+
+    // Previous position for interpolation
+    this.prevPosition = new THREE.Vector3();
+    this.renderPosition = new THREE.Vector3();
+
+    // Three.js mesh
+    this.mesh = this.createMesh(profile.color);
+    scene.add(this.mesh);
+
+    // Cannon-es body
+    this.body = new CANNON.Body({
+      mass: 1,
+      shape: new CANNON.Sphere(0.4),
+      linearDamping: 0.9,
+      angularDamping: 1.0,
+    });
+    const angle = (id / 5) * Math.PI * 2;
+    const spawnRadius = 5;
+    this.body.position.set(
+      Math.cos(angle) * spawnRadius,
+      0.5,
+      Math.sin(angle) * spawnRadius
+    );
+    world.addBody(this.body);
+
+    this.prevPosition.copy(this.body.position);
+  }
+
+  createMesh(color) {
+    const group = new THREE.Group();
+
+    // Body (capsule)
+    const bodyGeo = new THREE.CapsuleGeometry(0.3, 0.6, 4, 8);
+    const bodyMat = new THREE.MeshLambertMaterial({ color });
+    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+    bodyMesh.castShadow = true;
+    group.add(bodyMesh);
+
+    // Eyes
+    const eyeGeo = new THREE.SphereGeometry(0.06, 6, 6);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const pupilGeo = new THREE.SphereGeometry(0.03, 6, 6);
+    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+
+    [-0.12, 0.12].forEach(xOff => {
+      const eye = new THREE.Mesh(eyeGeo, eyeMat);
+      eye.position.set(xOff, 0.15, 0.28);
+      group.add(eye);
+
+      const pupil = new THREE.Mesh(pupilGeo, pupilMat);
+      pupil.position.set(xOff, 0.15, 0.32);
+      group.add(pupil);
+    });
+
+    // IT indicator (crown/glow — hidden by default)
+    const crownGeo = new THREE.ConeGeometry(0.15, 0.2, 5);
+    const crownMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 });
+    this.crown = new THREE.Mesh(crownGeo, crownMat);
+    this.crown.position.y = 0.55;
+    this.crown.visible = false;
+    group.add(this.crown);
+
+    // Blob shadow
+    const shadowGeo = new THREE.CircleGeometry(0.35, 8);
+    const shadowMat = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.25,
+      depthWrite: false,
+    });
+    this.shadow = new THREE.Mesh(shadowGeo, shadowMat);
+    this.shadow.rotation.x = -Math.PI / 2;
+    this.shadow.position.y = -0.49;
+    group.add(this.shadow);
+
+    return group;
+  }
+
+  fixedUpdate(dt, allAgents, itAgentId) {
+    this.prevPosition.set(
+      this.body.position.x,
+      this.body.position.y,
+      this.body.position.z
+    );
+
+    // Update state
+    this.isIt = this.id === itAgentId;
+    this.crown.visible = this.isIt;
+
+    // Taunt timer
+    if (this.state === STATES.TAUNT) {
+      this.tauntTimer -= dt;
+      if (this.tauntTimer <= 0) {
+        this.state = this.isIt ? STATES.HUNT : STATES.ROAM;
+      }
+      return; // Don't move during taunt
+    }
+
+    // Determine state based on situation
+    if (this.isIt) {
+      this.state = STATES.HUNT;
+    } else {
+      const itAgent = allAgents.find(a => a.id === itAgentId);
+      if (itAgent) {
+        const dist = this.distanceTo(itAgent);
+        this.state = dist < this.profile.panicDistance ? STATES.FLEE : STATES.ROAM;
+      }
+    }
+
+    // Compute velocity based on state and decision
+    const speed = this.decision.sprint ? this.profile.speed * 1.4 : this.profile.speed;
+    let vx = 0, vz = 0;
+
+    switch (this.state) {
+      case STATES.HUNT: {
+        // Chase nearest non-IT agent
+        const target = this.findNearestRunner(allAgents, itAgentId);
+        if (target) {
+          const dx = target.body.position.x - this.body.position.x;
+          const dz = target.body.position.z - this.body.position.z;
+          const d = Math.sqrt(dx * dx + dz * dz) || 1;
+          vx = (dx / d) * speed;
+          vz = (dz / d) * speed;
+          // Mix in AI decision
+          vx = vx * 0.7 + this.decision.moveX * speed * 0.3;
+          vz = vz * 0.7 + this.decision.moveZ * speed * 0.3;
+        }
+        break;
+      }
+      case STATES.FLEE: {
+        // Run from IT
+        const it = allAgents.find(a => a.id === itAgentId);
+        if (it) {
+          const dx = this.body.position.x - it.body.position.x;
+          const dz = this.body.position.z - it.body.position.z;
+          const d = Math.sqrt(dx * dx + dz * dz) || 1;
+          // Add scatter based on agent ID
+          const scatter = (this.id / 5) * Math.PI * 2;
+          vx = (dx / d + Math.cos(scatter) * 0.3) * speed;
+          vz = (dz / d + Math.sin(scatter) * 0.3) * speed;
+          // Mix in AI decision
+          vx = vx * 0.6 + this.decision.moveX * speed * 0.4;
+          vz = vz * 0.6 + this.decision.moveZ * speed * 0.4;
+        }
+        break;
+      }
+      case STATES.ROAM:
+      default: {
+        // Wander with AI decision
+        vx = this.decision.moveX * speed * 0.6;
+        vz = this.decision.moveZ * speed * 0.6;
+        // Add gentle random wander
+        vx += (Math.sin(Date.now() * 0.001 + this.id * 7) * 0.5) * speed * 0.3;
+        vz += (Math.cos(Date.now() * 0.0013 + this.id * 11) * 0.5) * speed * 0.3;
+        break;
+      }
+    }
+
+    // Separation force (don't stack on each other)
+    allAgents.forEach(other => {
+      if (other.id === this.id) return;
+      const dx = this.body.position.x - other.body.position.x;
+      const dz = this.body.position.z - other.body.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < 1.5 && dist > 0) {
+        const force = (1.5 - dist) / 1.5;
+        vx += (dx / dist) * force * 3;
+        vz += (dz / dist) * force * 3;
+      }
+    });
+
+    // Keep inside arena bounds
+    const BOUND = 16;
+    const px = this.body.position.x;
+    const pz = this.body.position.z;
+    if (px > BOUND) vx -= (px - BOUND) * 2;
+    if (px < -BOUND) vx -= (px + BOUND) * 2;
+    if (pz > BOUND) vz -= (pz - BOUND) * 2;
+    if (pz < -BOUND) vz -= (pz + BOUND) * 2;
+
+    // Apply velocity
+    this.body.velocity.x = vx;
+    this.body.velocity.z = vz;
+    this.body.position.y = 0.5; // Keep on ground
+
+    // Face movement direction
+    if (Math.abs(vx) > 0.1 || Math.abs(vz) > 0.1) {
+      const targetAngle = Math.atan2(vx, vz);
+      this.mesh.rotation.y = targetAngle;
+    }
+
+    // Stuck detection
+    const moved = this.prevPosition.distanceTo(
+      new THREE.Vector3(this.body.position.x, this.body.position.y, this.body.position.z)
+    );
+    if (moved < 0.01) {
+      this.stuckFrames++;
+      if (this.stuckFrames > 60) {
+        // Random escape
+        this.body.velocity.x = (Math.random() - 0.5) * speed * 2;
+        this.body.velocity.z = (Math.random() - 0.5) * speed * 2;
+        this.stuckFrames = 0;
+      }
+    } else {
+      this.stuckFrames = 0;
+    }
+
+    // Speech timer
+    if (this.speechTimer > 0) {
+      this.speechTimer -= dt;
+      if (this.speechTimer <= 0) this.speechText = '';
+    }
+
+    // Score (survival time as non-IT)
+    if (!this.isIt) {
+      this.score += dt;
+    }
+  }
+
+  interpolate(alpha) {
+    this.renderPosition.lerpVectors(
+      this.prevPosition,
+      new THREE.Vector3(this.body.position.x, this.body.position.y, this.body.position.z),
+      alpha
+    );
+    this.mesh.position.copy(this.renderPosition);
+  }
+
+  distanceTo(other) {
+    const dx = this.body.position.x - other.body.position.x;
+    const dz = this.body.position.z - other.body.position.z;
+    return Math.sqrt(dx * dx + dz * dz);
+  }
+
+  findNearestRunner(allAgents, itAgentId) {
+    let nearest = null;
+    let minDist = Infinity;
+    allAgents.forEach(a => {
+      if (a.id === itAgentId) return;
+      const d = this.distanceTo(a);
+      if (d < minDist) {
+        minDist = d;
+        nearest = a;
+      }
+    });
+    return nearest;
+  }
+
+  say(text, duration = 2.0) {
+    this.speechText = text;
+    this.speechTimer = duration;
+  }
+
+  startTaunt(duration = 1.2) {
+    this.state = STATES.TAUNT;
+    this.tauntTimer = duration;
+  }
+}
