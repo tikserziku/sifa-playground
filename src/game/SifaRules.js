@@ -105,6 +105,14 @@ export class SifaRules {
     tagger.startTaunt(1.0);
     if (Math.random() > 0.5) this.voice.playLaughSound();
 
+    // Learning: tagger learned good chase spot, tagged learned danger spot
+    tagger.brain.onTaggedSomeone(
+      tagger.body.position.x, tagger.body.position.z, tagged.id
+    );
+    tagged.brain.onGotTagged(
+      tagged.body.position.x, tagged.body.position.z, tagger.id
+    );
+
     // Transfer IT
     tagger.isIt = false;
     tagged.isIt = true;

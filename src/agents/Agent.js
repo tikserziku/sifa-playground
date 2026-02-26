@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { AgentBrain } from './AgentBrain.js';
 
 const STATES = {
   ROAM: 'roam',
@@ -23,6 +24,10 @@ export class Agent {
 
     // AI decision (from Groq or heuristic)
     this.decision = { moveX: 0, moveZ: 0, sprint: false };
+
+    // Learning brain
+    this.brain = new AgentBrain(id, profile);
+    this.decayTimer = 0;
 
     // Previous position for interpolation
     this.prevPosition = new THREE.Vector3();
@@ -231,6 +236,27 @@ export class Agent {
         vz += (Math.cos(Date.now() * 0.0013 + this.id * 11) * 0.5) * speed * 0.3;
         break;
       }
+    }
+
+    // Brain: apply learned spatial bias
+    const myX = this.body.position.x;
+    const myZ = this.body.position.z;
+    const bias = this.brain.getMovementBias(myX, myZ, this.isIt);
+    if (bias.confidence > 0.05) {
+      vx += bias.x * speed * 1.5;
+      vz += bias.z * speed * 1.5;
+    }
+
+    // Brain: record survival when not IT
+    if (!this.isIt) {
+      this.brain.recordSurvival(myX, myZ, dt);
+    }
+
+    // Brain: decay old memories periodically
+    this.decayTimer += dt;
+    if (this.decayTimer > 5.0) {
+      this.decayTimer = 0;
+      this.brain.decayMemories();
     }
 
     // Separation force (don't stack on each other)
