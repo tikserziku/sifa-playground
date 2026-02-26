@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "project_name": "sifa-playground",
+  "created": "2026-02-26",
+  "deploy_target": "windows-electron",
+  "model_profile": "c2",
+  "workflow": {
+    "research": true,
+    "plan_check": true,
+    "verifier": true,
+    "telegram_notify": true,
+    "github_backup": true,
+    "auto_deploy": false
+  },
+  "infrastructure": {
+    "oracle_vm": false,
+    "gcp_vm": false,
+    "kimi_vm": false,
+    "windows_pc": true,
+    "render": false
+  },
+  "parallelization": {
+    "enabled": true,
+    "max_concurrent": 3
+  }
+}
