@@ -30,9 +30,9 @@ const OBSTACLES = [
 });
 
 const BOUND = 16;
-const STUCK_THRESHOLD = 15;     // frames before diagnosed as stuck
-const ESCAPE_THRESHOLD = 25;    // frames before smart escape kicks in
-const WARP_THRESHOLD = 80;      // frames before warp to safety
+const STUCK_THRESHOLD = 8;      // frames before diagnosed as stuck
+const ESCAPE_THRESHOLD = 12;    // frames before smart escape kicks in
+const WARP_THRESHOLD = 35;      // frames before warp to safety
 
 export class StuckDiagnostic {
   constructor(scene) {
@@ -176,7 +176,7 @@ export class StuckDiagnostic {
       // Smart escape: try 8 directions, pick the one furthest from obstacles
       const escape = this._findEscapeDir(px, pz, allAgents, agent.id);
       data.escapedCount++;
-      data.stuckFrames = Math.max(0, data.stuckFrames - 15); // partial reset
+      data.stuckFrames = 0; // full reset after escape attempt
       return escape;
     }
 
@@ -194,7 +194,7 @@ export class StuckDiagnostic {
   _findEscapeDir(px, pz, allAgents, myId) {
     let bestDir = { x: 0, z: 0 };
     let bestScore = -Infinity;
-    const speed = 6;
+    const speed = 10;
 
     // Test 8 directions
     for (let i = 0; i < 8; i++) {

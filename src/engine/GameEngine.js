@@ -167,6 +167,17 @@ export class GameEngine {
       this.updateCameraButton(btnCamera);
     });
 
+    // Speed slider
+    const speedSlider = document.getElementById('speed-slider');
+    const speedVal = document.getElementById('speed-val');
+    if (speedSlider) {
+      speedSlider.addEventListener('input', () => {
+        const mul = speedSlider.value / 100;
+        this.agentManager.speedMultiplier = mul;
+        speedVal.textContent = mul.toFixed(1) + 'x';
+      });
+    }
+
     // Keyboard controls
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.altKey) return;
@@ -201,6 +212,12 @@ export class GameEngine {
             this.setCameraMode('cycle');
           }
           this.updateCameraButton(btnCamera);
+          break;
+
+        // Space = high side-jump to escape
+        case 'Space':
+          e.preventDefault();
+          this.playerJump();
           break;
       }
     });
@@ -324,6 +341,57 @@ export class GameEngine {
   switchToFirstPerson(agentId) {
     this.setCameraMode('first');
     this.smartCamera.setFirstPersonAgent(agentId);
+  }
+
+  // Space — high side-jump for the currently viewed agent
+  playerJump() {
+    const mode = this.smartCamera.mode;
+    // Find which agent the player is controlling/viewing
+    let agentId = -1;
+    if (mode === 'first' || mode === 'cycle') {
+      agentId = this.smartCamera.fpAgentId;
+    } else if (mode === 'ai') {
+      agentId = this.sifaRules.itAgentId;
+    }
+    if (agentId < 0) return;
+
+    const agent = this.agentManager.agents.find(a => a.id === agentId);
+    if (!agent) return;
+
+    // Cooldown: 2 seconds between jumps
+    const now = Date.now();
+    if (agent._lastJump && now - agent._lastJump < 2000) return;
+    agent._lastJump = now;
+
+    // Jump direction: perpendicular to current velocity (side dodge)
+    const vx = agent.body.velocity.x;
+    const vz = agent.body.velocity.z;
+    const speed = Math.sqrt(vx * vx + vz * vz);
+
+    let jumpX, jumpZ;
+    if (speed > 0.5) {
+      // Perpendicular to movement (random left or right)
+      const side = Math.random() > 0.5 ? 1 : -1;
+      jumpX = -vz * side;
+      jumpZ = vx * side;
+      const len = Math.sqrt(jumpX * jumpX + jumpZ * jumpZ) || 1;
+      jumpX = (jumpX / len) * 8;
+      jumpZ = (jumpZ / len) * 8;
+    } else {
+      // Random direction if standing still
+      const angle = Math.random() * Math.PI * 2;
+      jumpX = Math.cos(angle) * 8;
+      jumpZ = Math.sin(angle) * 8;
+    }
+
+    // Apply jump: high up + sideways
+    agent.body.velocity.x = jumpX;
+    agent.body.velocity.y = 7;
+    agent.body.velocity.z = jumpZ;
+    agent.stuckFrames = 0;
+
+    agent.say('Прыг!', 1.0);
+    this.smartCamera.shakeAmount = 0.15;
   }
 
   updateCameraButton(btn) {

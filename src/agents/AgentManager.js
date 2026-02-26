@@ -4,6 +4,7 @@ import { AGENT_PROFILES } from './Personalities.js';
 export class AgentManager {
   constructor(scene, world) {
     this.agents = [];
+    this.speedMultiplier = 1.0; // UI slider coefficient
     for (let i = 0; i < 5; i++) {
       this.agents.push(new Agent(i, AGENT_PROFILES[i], scene, world));
     }
@@ -11,7 +12,7 @@ export class AgentManager {
 
   fixedUpdate(dt, prevItAgentId) {
     const itId = this.agents.find(a => a.isIt)?.id ?? 0;
-    this.agents.forEach(a => a.fixedUpdate(dt, this.agents, itId, prevItAgentId));
+    this.agents.forEach(a => a.fixedUpdate(dt, this.agents, itId, prevItAgentId, this.speedMultiplier));
   }
 
   interpolate(alpha) {

@@ -153,7 +153,7 @@ export class Agent {
     return group;
   }
 
-  fixedUpdate(dt, allAgents, itAgentId, prevItAgentId) {
+  fixedUpdate(dt, allAgents, itAgentId, prevItAgentId, speedMul = 1.0) {
     this.prevPosition.set(
       this.body.position.x,
       this.body.position.y,
@@ -199,7 +199,7 @@ export class Agent {
     }
 
     // Compute velocity based on state and decision
-    const speed = this.decision.sprint ? this.profile.speed * 1.4 : this.profile.speed;
+    const speed = (this.decision.sprint ? this.profile.speed * 1.4 : this.profile.speed) * speedMul;
     let vx = 0, vz = 0;
 
     switch (this.state) {
@@ -311,18 +311,18 @@ export class Agent {
       if (dist < avoidR && dist > 0.01) {
         // How deep inside the avoidance zone (0 = edge, 1 = center)
         const penetration = 1 - (dist / avoidR);
-        // Strong repulsion force, stronger the deeper inside
-        const force = penetration * speed * 3;
+        // Strong repulsion — exponential with depth, min force = 5
+        const force = Math.max(5, penetration * penetration * speed * 8);
         vx += (dx / dist) * force;
         vz += (dz / dist) * force;
       }
     }
 
-    // Keep inside arena bounds
-    if (px > BOUND) vx -= (px - BOUND) * 3;
-    if (px < -BOUND) vx -= (px + BOUND) * 3;
-    if (pz > BOUND) vz -= (pz - BOUND) * 3;
-    if (pz < -BOUND) vz -= (pz + BOUND) * 3;
+    // Keep inside arena bounds (hard clamp + strong push)
+    if (px > BOUND) { vx -= (px - BOUND) * 6; this.body.position.x = Math.min(px, BOUND + 0.5); }
+    if (px < -BOUND) { vx -= (px + BOUND) * 6; this.body.position.x = Math.max(px, -BOUND - 0.5); }
+    if (pz > BOUND) { vz -= (pz - BOUND) * 6; this.body.position.z = Math.min(pz, BOUND + 0.5); }
+    if (pz < -BOUND) { vz -= (pz + BOUND) * 6; this.body.position.z = Math.max(pz, -BOUND - 0.5); }
 
     // Apply velocity
     this.body.velocity.x = vx;
@@ -395,17 +395,19 @@ export class Agent {
       this.renderPosition.z
     );
 
-    const vx = this.body.velocity.x;
-    const vz = this.body.velocity.z;
-    const speed = Math.sqrt(vx * vx + vz * vz);
+    // Use ACTUAL movement for animation, not desired velocity
+    // This prevents "running in place" when blocked by obstacles
+    const dx = this.body.position.x - this.prevPosition.x;
+    const dz = this.body.position.z - this.prevPosition.z;
+    const actualSpeed = Math.sqrt(dx * dx + dz * dz) * 60; // per-frame → per-second
 
     const { leftArm, rightArm, leftLeg, rightLeg } = this.mesh.userData;
 
-    if (speed > 0.5) {
-      // Running animation
-      const freq = 0.012 * (speed / 3);
+    if (actualSpeed > 0.5) {
+      // Running animation — speed matches real movement
+      const freq = 0.012 * (actualSpeed / 3);
       const t = Date.now() * freq;
-      const amplitude = Math.min(speed * 0.12, 0.7);
+      const amplitude = Math.min(actualSpeed * 0.12, 0.7);
 
       // Arms swing opposite to legs (natural running)
       if (leftArm) leftArm.rotation.x = Math.sin(t) * amplitude;
@@ -419,7 +421,7 @@ export class Agent {
       this.mesh.position.y += Math.abs(Math.sin(t * 2)) * 0.025;
 
       // Slight body lean forward when running fast
-      this.mesh.rotation.x = Math.min(speed * 0.015, 0.1);
+      this.mesh.rotation.x = Math.min(actualSpeed * 0.015, 0.1);
     } else {
       // Idle — gentle breathing
       const breathe = Math.sin(Date.now() * 0.002 + this.id) * 0.008;

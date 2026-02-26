@@ -226,11 +226,15 @@
   <div id="scoreboard"></div>
   <div id="speech-container"></div>
   <div id="start-hint">Кликни чтобы начать игру!</div>
-  <div id="hotkeys">C: камера · 1-5: от лица агента · V: обзор · A: авто-цикл · D: диагностика · F11: полный экран</div>
+  <div id="hotkeys">C: камера · 1-5: от лица агента · V: обзор · A: авто-цикл · ПРОБЕЛ: прыжок · D: диагностика · F11: полный экран</div>
   <div id="controls">
     <button id="btn-camera">Камера: AI</button>
     <button id="btn-music">Музыка: ВКЛ</button>
     <button id="btn-voice">Голоса: ВКЛ</button>
+    <label id="speed-label" style="color:#fff;font-family:'Segoe UI',sans-serif;font-size:12px;display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.3);border-radius:6px;padding:4px 10px;">
+      Скорость: <input id="speed-slider" type="range" min="20" max="300" value="100" style="width:80px;cursor:pointer;accent-color:#4af;">
+      <span id="speed-val">1.0x</span>
+    </label>
   </div>
   <script type="module" src="/src/main.js"></script>
 </body>
