@@ -10,6 +10,25 @@ const STATES = {
   TAUNT: 'taunt',
 };
 
+const BOUND = 16;
+
+// Obstacle positions for steering avoidance (center x,z + avoidance radius)
+const OBSTACLES = [
+  { x: -8,  z: -6.5, r: 2.2 },  // Горка
+  { x: 6,   z: -7,   r: 2.5 },  // Качели
+  { x: 0,   z: 7,    r: 2.5 },  // Песочница
+  { x: -7,  z: 5,    r: 2.0 },  // Рукоход
+  { x: 8,   z: 5,    r: 2.0 },  // Карусель
+  { x: -12, z: 0,    r: 1.3 },  // Скамейка1
+  { x: 12,  z: -2,   r: 1.3 },  // Скамейка2
+  { x: 3,   z: -13,  r: 1.3 },  // Скамейка3
+  // Деревья
+  { x:-14, z:-14, r: 0.8 }, { x:14, z:-14, r: 0.8 },
+  { x:-14, z:10,  r: 0.8 }, { x:13, z:12,  r: 0.8 },
+  { x:-10, z:14,  r: 0.8 }, { x:10, z:-12, r: 0.8 },
+  { x:-15, z:0,   r: 0.8 }, { x:15, z:3,   r: 0.8 },
+];
+
 export class Agent {
   constructor(id, profile, scene, world) {
     this.id = id;
@@ -29,6 +48,15 @@ export class Agent {
     // Learning brain
     this.brain = new AgentBrain(id, profile);
     this.decayTimer = 0;
+
+    // Evolution system (set externally by GameEngine)
+    this.geneSystem = null;
+    this.evolutionFx = null;
+    this.shielded = false;   // true when shield ability active (immune to tag)
+    this.flying = false;     // true when fly ability active
+
+    // Stuck diagnostic (set externally by GameEngine)
+    this.stuckDiag = null;
 
     // Previous position for interpolation
     this.prevPosition = new THREE.Vector3();
@@ -219,6 +247,24 @@ export class Agent {
       }
     }
 
+    // === EVOLUTION: ability decision + effects ===
+    if (this.geneSystem) {
+      this._updateAbilities(dt, allAgents, itAgentId, speed);
+
+      // Dash: 2.5x speed multiplier
+      if (this.geneSystem.isActive(this.id, 'dash')) {
+        vx *= 2.5;
+        vz *= 2.5;
+        // Spawn trail
+        if (this.evolutionFx && Math.random() > 0.5) {
+          this.evolutionFx.spawnDashTrail(
+            this.body.position.x, this.body.position.y, this.body.position.z,
+            this.profile.color
+          );
+        }
+      }
+    }
+
     // Brain: apply learned spatial bias
     const myX = this.body.position.x;
     const myZ = this.body.position.z;
@@ -253,23 +299,51 @@ export class Agent {
       }
     });
 
-    // Keep inside arena bounds
-    const BOUND = 16;
+    // === OBSTACLE AVOIDANCE STEERING ===
+    // Push velocity away from nearby obstacles so agents steer around them
     const px = this.body.position.x;
     const pz = this.body.position.z;
-    if (px > BOUND) vx -= (px - BOUND) * 2;
-    if (px < -BOUND) vx -= (px + BOUND) * 2;
-    if (pz > BOUND) vz -= (pz - BOUND) * 2;
-    if (pz < -BOUND) vz -= (pz + BOUND) * 2;
+    for (const obs of OBSTACLES) {
+      const dx = px - obs.x;
+      const dz = pz - obs.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const avoidR = obs.r + 0.4; // agent radius buffer
+      if (dist < avoidR && dist > 0.01) {
+        // How deep inside the avoidance zone (0 = edge, 1 = center)
+        const penetration = 1 - (dist / avoidR);
+        // Strong repulsion force, stronger the deeper inside
+        const force = penetration * speed * 3;
+        vx += (dx / dist) * force;
+        vz += (dz / dist) * force;
+      }
+    }
+
+    // Keep inside arena bounds
+    if (px > BOUND) vx -= (px - BOUND) * 3;
+    if (px < -BOUND) vx -= (px + BOUND) * 3;
+    if (pz > BOUND) vz -= (pz - BOUND) * 3;
+    if (pz < -BOUND) vz -= (pz + BOUND) * 3;
 
     // Apply velocity
     this.body.velocity.x = vx;
     this.body.velocity.z = vz;
 
-    // Keep on ground — physics gravity pulls down, clamp at ground level
-    if (this.body.position.y < 0.2) {
-      this.body.position.y = 0.2;
-      this.body.velocity.y = 0;
+    // Flying: lift above ground, otherwise clamp to ground
+    if (this.flying) {
+      const targetY = 2.5;
+      if (this.body.position.y < targetY) {
+        this.body.velocity.y = 4;
+      } else {
+        this.body.velocity.y = Math.sin(Date.now() * 0.003) * 0.5; // gentle hover
+      }
+    } else {
+      // Force landing if above ground (post-fly or physics glitch)
+      if (this.body.position.y > 0.5) {
+        this.body.velocity.y = -6; // fast descent
+      } else if (this.body.position.y < 0.2) {
+        this.body.position.y = 0.2;
+        this.body.velocity.y = 0;
+      }
     }
 
     // Face movement direction
@@ -278,20 +352,22 @@ export class Agent {
       this.mesh.rotation.y = targetAngle;
     }
 
-    // Stuck detection
+    // Stuck detection + smart escape
+    if (this.stuckDiag) {
+      const escape = this.stuckDiag.diagnose(this, allAgents);
+      if (escape) {
+        this.body.velocity.x = escape.x;
+        this.body.velocity.z = escape.z;
+      }
+    }
+    // Fallback stuck counter (for SupervisorBot)
     const moved = this.prevPosition.distanceTo(
       new THREE.Vector3(this.body.position.x, this.body.position.y, this.body.position.z)
     );
     if (moved < 0.01) {
       this.stuckFrames++;
-      if (this.stuckFrames > 60) {
-        // Random escape
-        this.body.velocity.x = (Math.random() - 0.5) * speed * 2;
-        this.body.velocity.z = (Math.random() - 0.5) * speed * 2;
-        this.stuckFrames = 0;
-      }
     } else {
-      this.stuckFrames = 0;
+      this.stuckFrames = Math.max(0, this.stuckFrames - 1);
     }
 
     // Speech timer
@@ -388,5 +464,57 @@ export class Agent {
   startTaunt(duration = 1.2) {
     this.state = STATES.TAUNT;
     this.tauntTimer = duration;
+  }
+
+  // --- Evolution ability logic ---
+  _updateAbilities(dt, allAgents, itAgentId, speed) {
+    const gs = this.geneSystem;
+    const fx = this.evolutionFx;
+
+    // Determine situation for AI decision
+    const itAgent = allAgents.find(a => a.id === itAgentId);
+    const distToIt = itAgent ? this.distanceTo(itAgent) : 999;
+    const px = this.body.position.x;
+    const pz = this.body.position.z;
+    const isCorner = (Math.abs(px) > BOUND - 3) && (Math.abs(pz) > BOUND - 3);
+
+    // AI decides to use ability
+    const choice = gs.decideAbility(this.id, this.isIt, distToIt, isCorner);
+    if (choice && gs.activateAbility(this.id, choice)) {
+      if (fx) fx.show(this.id, choice);
+
+      // Ability activation speech
+      const abilityNames = {
+        dash: 'Рывок!', scream: 'АААА!!!', fly: 'Я лечу!',
+        stealth: 'Исчезаю...', shield: 'Щит!'
+      };
+      this.say(abilityNames[choice] || choice, 1.5);
+
+      // Scream: push nearby agents away
+      if (choice === 'scream') {
+        allAgents.forEach(other => {
+          if (other.id === this.id) return;
+          const dx = other.body.position.x - this.body.position.x;
+          const dz = other.body.position.z - this.body.position.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist < 5 && dist > 0) {
+            const force = (5 - dist) / 5 * 8;
+            other.body.velocity.x += (dx / dist) * force;
+            other.body.velocity.z += (dz / dist) * force;
+          }
+        });
+      }
+    }
+
+    // Track active states
+    this.shielded = gs.isActive(this.id, 'shield');
+    this.flying = gs.isActive(this.id, 'fly');
+
+    // Hide effects when abilities expire
+    ['shield', 'fly', 'stealth', 'dash'].forEach(key => {
+      if (fx && !gs.isActive(this.id, key) && fx.effects.get(this.id)?.active[key]) {
+        fx.hide(this.id, key);
+      }
+    });
   }
 }

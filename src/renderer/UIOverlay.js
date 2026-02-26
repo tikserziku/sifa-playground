@@ -1,9 +1,12 @@
+import { ABILITIES } from '../game/GeneSystem.js';
+
 export class UIOverlay {
-  constructor(agentManager, sifaRules, smartCamera, supervisorBot) {
+  constructor(agentManager, sifaRules, smartCamera, supervisorBot, geneSystem) {
     this.agentManager = agentManager;
     this.sifaRules = sifaRules;
     this.smartCamera = smartCamera;
     this.supervisorBot = supervisorBot;
+    this.geneSystem = geneSystem;
     this.scoreboard = document.getElementById('scoreboard');
     this.overlay = document.getElementById('ui-overlay');
     this.speechContainer = document.getElementById('speech-container');
@@ -21,6 +24,18 @@ export class UIOverlay {
     this.fpHud.id = 'fp-hud';
     this.fpHud.style.display = 'none';
     document.body.appendChild(this.fpHud);
+
+    // Evolution panel (bottom-left)
+    this.evoPanel = document.createElement('div');
+    this.evoPanel.id = 'evo-panel';
+    this.evoPanel.innerHTML = '';
+    document.body.appendChild(this.evoPanel);
+
+    // Evolution notification container (center-top)
+    this.evoNotify = document.createElement('div');
+    this.evoNotify.id = 'evo-notify';
+    document.body.appendChild(this.evoNotify);
+    this._shownEvolutions = new Set();
   }
 
   update() {
@@ -31,8 +46,12 @@ export class UIOverlay {
     if (this.updateCounter % 30 === 0) {
       this.updateLearningPanel();
     }
+    if (this.updateCounter % 20 === 0) {
+      this.updateEvolutionPanel();
+    }
     this.updateSpeechBubbles();
     this.updateFirstPersonHud();
+    this.updateEvolutionNotifications();
   }
 
   updateScoreboard() {
@@ -214,6 +233,88 @@ export class UIOverlay {
       html += `<div class="fp-cycle">Клавиши 1-5: сменить агента</div>`;
     }
 
+    // Show abilities in FP HUD
+    if (this.geneSystem) {
+      const unlocked = this.geneSystem.getUnlockedAbilities(agent.id);
+      if (unlocked.length > 0) {
+        html += `<div class="fp-abilities">`;
+        unlocked.forEach(ab => {
+          const ratio = this.geneSystem.getCooldownRatio(agent.id, ab.key);
+          let status = '';
+          if (ratio === -1) status = ' style="color:#0f0"'; // active
+          else if (ratio < 1) status = ` style="opacity:${0.3 + ratio * 0.7}"`;
+          html += `<span${status}>${ab.icon}</span> `;
+        });
+        html += `</div>`;
+      }
+    }
+
     this.fpHud.innerHTML = html;
+  }
+
+  updateEvolutionPanel() {
+    if (!this.geneSystem) return;
+    const agents = this.agentManager.agents;
+    const geneNames = ['speed', 'agility', 'scream', 'fly', 'shield', 'stealth', 'dash'];
+    const geneIcons = { speed: '\u26A1', agility: '\u{1F3C3}', scream: '\u{1F4E2}', fly: '\u{1F985}', shield: '\u{1F6E1}', stealth: '\u{1F47B}', dash: '\u{1F4A8}' };
+
+    let html = '<b>ЭВОЛЮЦИЯ</b><br>';
+    agents.forEach(a => {
+      const genes = this.geneSystem.getGenes(a.id);
+      const unlocked = this.geneSystem.getUnlockedAbilities(a.id);
+      const colorHex = '#' + a.profile.color.toString(16).padStart(6, '0');
+
+      html += `<span style="color:${colorHex}">\u25CF</span> <b>${a.profile.name}</b> `;
+
+      // Show ability icons
+      if (unlocked.length > 0) {
+        unlocked.forEach(ab => {
+          const active = this.geneSystem.isActive(a.id, ab.key);
+          const style = active ? 'color:#0f0' : '';
+          html += `<span style="${style}">${ab.icon}</span>`;
+        });
+      }
+      html += '<br>';
+
+      // Gene bars (compact)
+      html += `<span style="opacity:0.6;font-size:10px;margin-left:14px">`;
+      geneNames.forEach(g => {
+        const val = genes[g] || 0;
+        if (val > 0.15) {
+          const pct = Math.round(val * 100);
+          const threshold = ABILITIES[g]?.threshold;
+          const color = threshold && val >= threshold ? '#0f0' : '#aaa';
+          html += `${geneIcons[g] || g}<span style="color:${color}">${pct}%</span> `;
+        }
+      });
+      html += `</span><br>`;
+    });
+
+    html += `<br><small>Мутаций: ${this.geneSystem.totalMutations}</small>`;
+    this.evoPanel.innerHTML = html;
+  }
+
+  updateEvolutionNotifications() {
+    if (!this.geneSystem) return;
+    const recent = this.geneSystem.getRecentEvolutions(5000);
+    const agents = this.agentManager.agents;
+
+    recent.forEach(ev => {
+      const key = `${ev.agentId}-${ev.ability}-${ev.time}`;
+      if (this._shownEvolutions.has(key)) return;
+      this._shownEvolutions.add(key);
+
+      const agent = agents[ev.agentId];
+      if (!agent) return;
+      const colorHex = '#' + agent.profile.color.toString(16).padStart(6, '0');
+
+      const notif = document.createElement('div');
+      notif.className = 'evo-notification';
+      notif.innerHTML = `<span style="color:${colorHex}">${agent.profile.name}</span> ${ev.icon} <b>${ev.name}</b>`;
+      this.evoNotify.appendChild(notif);
+
+      // Auto-remove after animation
+      setTimeout(() => { notif.remove(); }, 4500);
+    });
   }
 }

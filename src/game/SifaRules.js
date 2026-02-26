@@ -34,6 +34,7 @@ export class SifaRules {
     this.tagHistory = [];
     this.gameTime = 0;
     this.shoutTimer = 0;
+    this.geneSystem = null;      // set by GameEngine
   }
 
   initialize() {
@@ -76,6 +77,18 @@ export class SifaRules {
 
       const dist = it.distanceTo(target);
       if (dist < this.TAG_DISTANCE) {
+        // Evolution: shield blocks tag, flying blocks tag
+        if (target.shielded) {
+          if (!target._shieldBlockMsg) {
+            target.say('Щит держит!', 1.0);
+            target._shieldBlockMsg = true;
+            setTimeout(() => { target._shieldBlockMsg = false; }, 2000);
+          }
+          return;
+        }
+        if (target.flying) {
+          return; // can't tag someone in the air
+        }
         this.executeTag(it, target);
       }
     });
@@ -112,6 +125,22 @@ export class SifaRules {
     tagged.brain.onGotTagged(
       tagged.body.position.x, tagged.body.position.z, tagger.id
     );
+
+    // Evolution: mutate the tagged agent (evolutionary pressure)
+    if (this.geneSystem) {
+      const mutations = this.geneSystem.mutateOnTagged(tagged.id);
+      this.geneSystem.reinforceOnEscape(tagger.id);
+
+      // Announce new abilities
+      const recent = this.geneSystem.getRecentEvolutions(500);
+      recent.forEach(ev => {
+        const agent = this.agentManager.agents[ev.agentId];
+        if (agent) {
+          agent.say(`${ev.icon} ${ev.name}!`, 3.0);
+          this.voice.speak(agent.id, `Эволюция! ${ev.name}!`);
+        }
+      });
+    }
 
     // Transfer IT
     tagger.isIt = false;

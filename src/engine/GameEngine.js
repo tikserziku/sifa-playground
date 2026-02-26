@@ -9,6 +9,9 @@ import { MusicPlayer } from '../audio/MusicPlayer.js';
 import { VoiceManager } from '../audio/VoiceManager.js';
 import { SmartCamera } from '../renderer/SmartCamera.js';
 import { SupervisorBot } from '../game/SupervisorBot.js';
+import { GeneSystem } from '../game/GeneSystem.js';
+import { EvolutionEffects } from '../renderer/EvolutionEffects.js';
+import { StuckDiagnostic } from '../game/StuckDiagnostic.js';
 
 const CAMERA_MODES = ['ai', 'first', 'spectator', 'cycle', 'free'];
 
@@ -64,7 +67,25 @@ export class GameEngine {
     // Supervisor rescue bot
     this.supervisorBot = new SupervisorBot(this.scene);
 
-    this.ui = new UIOverlay(this.agentManager, this.sifaRules, this.smartCamera, this.supervisorBot);
+    // Evolution system
+    this.geneSystem = new GeneSystem();
+    this.evolutionFx = new EvolutionEffects(this.scene);
+    this.sifaRules.geneSystem = this.geneSystem;
+
+    // Stuck diagnostic
+    this.stuckDiag = new StuckDiagnostic(this.scene);
+
+    // Initialize genes + effects + diagnostics for each agent
+    this.agentManager.agents.forEach(agent => {
+      this.geneSystem.initAgent(agent.id);
+      this.evolutionFx.initAgent(agent.id, agent.mesh);
+      this.stuckDiag.initAgent(agent.id);
+      agent.geneSystem = this.geneSystem;
+      agent.evolutionFx = this.evolutionFx;
+      agent.stuckDiag = this.stuckDiag;
+    });
+
+    this.ui = new UIOverlay(this.agentManager, this.sifaRules, this.smartCamera, this.supervisorBot, this.geneSystem);
 
     // Game loop
     this.fixedStep = 1 / 60;
@@ -184,6 +205,16 @@ export class GameEngine {
       }
     });
 
+    // F11 fullscreen — separate listener to prevent default
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'F11') {
+        e.preventDefault();
+        if (window.electronAPI && window.electronAPI.toggleFullscreen) {
+          window.electronAPI.toggleFullscreen();
+        }
+      }
+    });
+
     requestAnimationFrame((t) => this.loop(t));
   }
 
@@ -217,6 +248,11 @@ export class GameEngine {
     // Supervisor bot update
     this.supervisorBot.update(frameDt, this.agentManager.agents);
 
+    // Evolution system + visual effects + stuck diagnostic
+    this.geneSystem.update(frameDt);
+    this.evolutionFx.update(frameDt);
+    this.stuckDiag.update();
+
     // Camera update
     const mode = this.smartCamera.mode;
     if (mode === 'free') {
@@ -228,6 +264,14 @@ export class GameEngine {
         this.sifaRules.itAgentId,
         this.sifaRules
       );
+    }
+
+    // Sync music theme to camera's current agent
+    const camMode = this.smartCamera.mode;
+    if (camMode === 'first' || camMode === 'cycle') {
+      this.music.setAgent(this.smartCamera.fpAgentId);
+    } else if (camMode === 'ai') {
+      this.music.setAgent(this.sifaRules.itAgentId);
     }
 
     this.ui.update();

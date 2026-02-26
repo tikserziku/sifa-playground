@@ -1,44 +1,143 @@
 /**
- * Procedural cheerful playground music using Web Audio API.
- * No external files — generates a looping xylophone/music-box melody.
+ * Procedural music with unique themes per agent.
+ * Each child has their own scale, melody, tempo, and instrument sound.
+ * Crossfades smoothly when switching agents.
+ *
+ * Themes:
+ *   0 Ваня  (red)    — fast aggressive march, minor key, sawtooth bass
+ *   1 Маша  (pink)   — gentle music box, high register, soft waltz
+ *   2 Коля  (blue)   — cool synth, steady beat, pentatonic funk
+ *   3 Даша  (yellow) — warm bouncy, major key, cheerful xylophone
+ *   4 Петя  (green)  — silly circus, chromatic runs, kazoo-like lead
  */
 export class MusicPlayer {
   constructor() {
     this.ctx = null;
     this.playing = false;
     this.masterGain = null;
-    this.tempo = 140; // BPM
-    this.beatDuration = 60 / this.tempo;
-    this.currentBeat = 0;
+    this.compressor = null;
     this.loopTimer = null;
 
-    // C major pentatonic — cheerful playground feel
-    // Notes as frequencies (C4-C6 range)
-    this.scale = [
-      261.63, 293.66, 329.63, 392.00, 440.00,  // C4 D4 E4 G4 A4
-      523.25, 587.33, 659.25, 783.99, 880.00,   // C5 D5 E5 G5 A5
-      1046.50, 1174.66, 1318.51,                 // C6 D6 E6
-    ];
+    this.currentAgentId = -1;  // who we're playing for
+    this.targetAgentId = -1;
+    this.crossfade = 0;       // 0 = old theme, 1 = new theme
 
-    // Melody patterns (index into scale array) — 4 phrases, 8 beats each
-    this.melodyPatterns = [
-      // Phrase 1: ascending playful
-      [0, 2, 4, 5, 7, 5, 4, 2],
-      // Phrase 2: bouncy
-      [5, 7, 9, 7, 5, 4, 2, 4],
-      // Phrase 3: call and response
-      [0, 2, 4, -1, 5, 7, 9, -1],  // -1 = rest
-      // Phrase 4: descending resolution
-      [9, 7, 5, 4, 2, 0, 2, 4],
-    ];
-
-    // Bass pattern (lower octave)
-    this.bassPattern = [0, 0, 3, 3, 4, 4, 0, 0]; // scale degrees simplified
-
-    // Rhythm variations (note duration multiplier)
-    this.rhythms = [1, 0.5, 0.5, 1, 1, 0.5, 0.5, 1];
-
+    this.currentBeat = 0;
     this.currentPhrase = 0;
+
+    // === 5 AGENT THEMES ===
+    this.themes = [
+      // 0: Ваня — aggressive march (A minor)
+      {
+        name: 'Ваня',
+        tempo: 160,
+        scale: [220, 261.63, 293.66, 329.63, 349.23, 392, 440, 523.25, 587.33, 659.25],
+        // A3 C4 D4 E4 F4 G4 A4 C5 D5 E5
+        melodies: [
+          [0, 3, 5, 6, 5, 3, 0, -1],   // aggressive ascending
+          [6, 5, 3, 6, 5, 3, 0, 0],     // hammering
+          [0, 0, 3, 3, 5, 5, 6, -1],    // marching steps
+          [6, 8, 9, 8, 6, 5, 3, 0],     // battle cry descent
+        ],
+        bass: [0, 0, 3, 3, 5, 5, 0, 0],
+        rhythms: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+        leadWave: 'sawtooth',
+        leadVolume: 0.2,
+        bassWave: 'sawtooth',
+        bassVolume: 0.15,
+        percStyle: 'heavy',
+        harmonics: [2, 3],
+      },
+
+      // 1: Маша — gentle music box (C major, high register)
+      {
+        name: 'Маша',
+        tempo: 108,
+        scale: [523.25, 587.33, 659.25, 698.46, 783.99, 880, 987.77, 1046.5, 1174.66, 1318.51],
+        // C5 D5 E5 F5 G5 A5 B5 C6 D6 E6
+        melodies: [
+          [0, 2, 4, 7, 4, 2, 0, -1],     // twinkling ascend
+          [7, 4, 2, 0, -1, 0, 2, 4],     // gentle fall
+          [0, 4, 2, 6, 4, 2, 0, -1],     // music box dance
+          [4, 7, 9, 7, 4, 2, 0, 0],      // lullaby end
+        ],
+        bass: [0, 0, 4, 4, 2, 2, 0, 0],
+        rhythms: [1, 1, 1, 1, 1, 1, 1, 1],  // waltz-like, even
+        leadWave: 'sine',
+        leadVolume: 0.25,
+        bassWave: 'sine',
+        bassVolume: 0.08,
+        percStyle: 'soft',
+        harmonics: [2, 4],  // octave + double octave = pure bell
+      },
+
+      // 2: Коля — cool synth funk (G mixolydian)
+      {
+        name: 'Коля',
+        tempo: 130,
+        scale: [196, 220, 246.94, 261.63, 293.66, 329.63, 349.23, 392, 440, 493.88],
+        // G3 A3 B3 C4 D4 E4 F4 G4 A4 B4
+        melodies: [
+          [0, -1, 3, -1, 4, -1, 7, -1],  // sparse, cool
+          [7, 4, 3, 0, 7, 4, 3, -1],     // calculated descent
+          [0, 3, 4, 7, -1, 4, 3, 0],     // strategic build
+          [4, 7, 9, 7, 4, -1, 0, 3],     // synth groove
+        ],
+        bass: [0, 0, -1, 3, 4, 4, -1, 0],
+        rhythms: [1, 0.5, 0.5, 1, 1, 0.5, 0.5, 1],
+        leadWave: 'triangle',
+        leadVolume: 0.22,
+        bassWave: 'square',
+        bassVolume: 0.1,
+        percStyle: 'funk',
+        harmonics: [1.5, 2],  // fifth + octave = synth character
+      },
+
+      // 3: Даша — warm bouncy (F major, cheerful)
+      {
+        name: 'Даша',
+        tempo: 145,
+        scale: [349.23, 392, 440, 466.16, 523.25, 587.33, 659.25, 698.46, 783.99, 880],
+        // F4 G4 A4 Bb4 C5 D5 E5 F5 G5 A5
+        melodies: [
+          [0, 2, 4, 5, 4, 2, 0, 2],      // bouncy jump
+          [4, 5, 7, 5, 4, 2, 4, -1],     // playground swing
+          [0, 4, 2, 5, 4, 0, 2, 4],      // social dance
+          [7, 5, 4, 2, 0, 2, 4, 5],      // warm round
+        ],
+        bass: [0, 0, 2, 2, 4, 4, 0, 0],
+        rhythms: [0.75, 0.75, 0.5, 1, 0.75, 0.75, 0.5, 1],
+        leadWave: 'sine',
+        leadVolume: 0.25,
+        bassWave: 'sine',
+        bassVolume: 0.12,
+        percStyle: 'bouncy',
+        harmonics: [2, 3],
+      },
+
+      // 4: Петя — silly circus (chromatic, playful)
+      {
+        name: 'Петя',
+        tempo: 170,
+        scale: [261.63, 277.18, 293.66, 311.13, 329.63, 349.23, 369.99, 392, 415.30, 440,
+                466.16, 493.88, 523.25],
+        // Chromatic from C4 to C5
+        melodies: [
+          [0, 4, 8, 12, 8, 4, 0, -1],     // chromatic swoops
+          [12, 10, 8, 6, 4, 2, 0, -1],    // slide down
+          [0, 1, 2, 3, 4, -1, 8, 12],     // creeping up + jump
+          [12, 8, 11, 7, 10, 6, 0, -1],   // zigzag chaos
+        ],
+        bass: [0, 0, 4, 4, 8, 8, 0, 0],
+        rhythms: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1, 0.5],
+        leadWave: 'square',
+        leadVolume: 0.15,
+        bassWave: 'triangle',
+        bassVolume: 0.1,
+        percStyle: 'circus',
+        harmonics: [2, 2.5],  // octave + weird = kazoo effect
+      },
+    ];
   }
 
   async start() {
@@ -46,10 +145,9 @@ export class MusicPlayer {
 
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = 0.15; // quiet background
+    this.masterGain.gain.value = 0.15;
     this.masterGain.connect(this.ctx.destination);
 
-    // Compressor for cleaner mix
     this.compressor = this.ctx.createDynamicsCompressor();
     this.compressor.threshold.value = -20;
     this.compressor.ratio.value = 4;
@@ -58,6 +156,8 @@ export class MusicPlayer {
     this.playing = true;
     this.currentBeat = 0;
     this.currentPhrase = 0;
+    if (this.currentAgentId < 0) this.currentAgentId = 0;
+    this.targetAgentId = this.currentAgentId;
     this.scheduleBeat();
   }
 
@@ -75,89 +175,115 @@ export class MusicPlayer {
     }
   }
 
+  /** Call from game loop to set which agent's theme to play */
+  setAgent(agentId) {
+    if (agentId < 0 || agentId >= this.themes.length) return;
+    if (agentId !== this.targetAgentId) {
+      this.targetAgentId = agentId;
+      this.crossfade = 0;
+    }
+  }
+
+  getTheme() {
+    const id = this.currentAgentId >= 0 ? this.currentAgentId : 0;
+    return this.themes[id % this.themes.length];
+  }
+
   scheduleBeat() {
     if (!this.playing) return;
 
-    const pattern = this.melodyPatterns[this.currentPhrase];
-    const noteIndex = pattern[this.currentBeat];
-    const rhythm = this.rhythms[this.currentBeat];
-    const duration = this.beatDuration * rhythm;
-
-    // Melody note (xylophone/bell sound)
-    if (noteIndex >= 0) {
-      this.playBell(this.scale[noteIndex], duration * 0.8, 0.3);
+    // Crossfade to target agent
+    if (this.targetAgentId !== this.currentAgentId) {
+      this.crossfade += 0.15;
+      if (this.crossfade >= 1) {
+        this.currentAgentId = this.targetAgentId;
+        this.crossfade = 0;
+        // Reset phrase on agent switch for fresh start
+        this.currentPhrase = 0;
+      }
     }
 
-    // Bass note every 2 beats (soft sine)
+    const theme = this.getTheme();
+    const beatDuration = 60 / theme.tempo;
+    const pattern = theme.melodies[this.currentPhrase % theme.melodies.length];
+    const noteIndex = pattern[this.currentBeat % pattern.length];
+    const rhythm = theme.rhythms[this.currentBeat % theme.rhythms.length];
+    const duration = beatDuration * rhythm;
+
+    // Volume fades during crossfade
+    const vol = this.crossfade > 0 ? (1 - this.crossfade) : 1;
+
+    // === Lead melody ===
+    if (noteIndex >= 0 && noteIndex < theme.scale.length) {
+      this.playLead(
+        theme.scale[noteIndex],
+        duration * 0.8,
+        theme.leadVolume * vol,
+        theme.leadWave,
+        theme.harmonics
+      );
+    }
+
+    // === Bass (every 2 beats) ===
     if (this.currentBeat % 2 === 0) {
-      const bassIdx = this.bassPattern[this.currentBeat];
-      const bassFreq = this.scale[bassIdx] / 2; // one octave lower
-      this.playBass(bassFreq, this.beatDuration * 1.8, 0.12);
+      const bassIdx = theme.bass[this.currentBeat % theme.bass.length];
+      if (bassIdx >= 0 && bassIdx < theme.scale.length) {
+        const bassFreq = theme.scale[bassIdx] / 2;
+        this.playBass(bassFreq, beatDuration * 1.8, theme.bassVolume * vol, theme.bassWave);
+      }
     }
 
-    // Percussion on every beat
-    this.playPerc(this.currentBeat % 4 === 0 ? 'kick' : 'tick', 0.08);
-
-    // Hi-hat on off-beats
-    if (this.currentBeat % 2 === 1) {
-      this.playPerc('hat', 0.04);
-    }
+    // === Percussion ===
+    this.playPercForStyle(theme.percStyle, this.currentBeat, vol);
 
     // Advance
     this.currentBeat++;
     if (this.currentBeat >= 8) {
       this.currentBeat = 0;
-      this.currentPhrase = (this.currentPhrase + 1) % this.melodyPatterns.length;
+      this.currentPhrase = (this.currentPhrase + 1) % theme.melodies.length;
     }
 
     this.loopTimer = setTimeout(() => this.scheduleBeat(), duration * 1000);
   }
 
-  // Bell/xylophone tone — two harmonics with fast decay
-  playBell(freq, duration, volume) {
+  // Lead instrument — configurable wave + harmonics
+  playLead(freq, duration, volume, waveType, harmonics) {
     const t = this.ctx.currentTime;
+
+    // Fundamental
     const gain = this.ctx.createGain();
     gain.gain.setValueAtTime(volume, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
     gain.connect(this.compressor);
 
-    // Fundamental
-    const osc1 = this.ctx.createOscillator();
-    osc1.type = 'sine';
-    osc1.frequency.value = freq;
-    osc1.connect(gain);
-    osc1.start(t);
-    osc1.stop(t + duration);
+    const osc = this.ctx.createOscillator();
+    osc.type = waveType;
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    osc.start(t);
+    osc.stop(t + duration);
 
-    // Harmonic (octave up, quieter) — bell shimmer
-    const gain2 = this.ctx.createGain();
-    gain2.gain.setValueAtTime(volume * 0.3, t);
-    gain2.gain.exponentialRampToValueAtTime(0.001, t + duration * 0.5);
-    gain2.connect(this.compressor);
+    // Harmonics (give each instrument its unique timbre)
+    if (harmonics) {
+      harmonics.forEach((mult, i) => {
+        const hGain = this.ctx.createGain();
+        const hVol = volume * (0.25 / (i + 1));
+        hGain.gain.setValueAtTime(hVol, t);
+        hGain.gain.exponentialRampToValueAtTime(0.001, t + duration * (0.6 / (i + 1)));
+        hGain.connect(this.compressor);
 
-    const osc2 = this.ctx.createOscillator();
-    osc2.type = 'sine';
-    osc2.frequency.value = freq * 2;
-    osc2.connect(gain2);
-    osc2.start(t);
-    osc2.stop(t + duration);
-
-    // Third harmonic (adds brightness)
-    const gain3 = this.ctx.createGain();
-    gain3.gain.setValueAtTime(volume * 0.1, t);
-    gain3.gain.exponentialRampToValueAtTime(0.001, t + duration * 0.3);
-    gain3.connect(this.compressor);
-
-    const osc3 = this.ctx.createOscillator();
-    osc3.type = 'sine';
-    osc3.frequency.value = freq * 3;
-    osc3.connect(gain3);
-    osc3.start(t);
-    osc3.stop(t + duration);
+        const hOsc = this.ctx.createOscillator();
+        hOsc.type = 'sine';
+        hOsc.frequency.value = freq * mult;
+        hOsc.connect(hGain);
+        hOsc.start(t);
+        hOsc.stop(t + duration);
+      });
+    }
   }
 
-  // Soft bass — sine wave with gentle attack
-  playBass(freq, duration, volume) {
+  // Bass note
+  playBass(freq, duration, volume, waveType) {
     const t = this.ctx.currentTime;
     const gain = this.ctx.createGain();
     gain.gain.setValueAtTime(0, t);
@@ -166,57 +292,176 @@ export class MusicPlayer {
     gain.connect(this.compressor);
 
     const osc = this.ctx.createOscillator();
-    osc.type = 'sine';
+    osc.type = waveType || 'sine';
     osc.frequency.value = freq;
     osc.connect(gain);
     osc.start(t);
     osc.stop(t + duration);
   }
 
-  // Simple percussion using noise bursts
+  // Per-style percussion
+  playPercForStyle(style, beat, vol) {
+    switch (style) {
+      case 'heavy':
+        // Ваня: aggressive kicks + snare
+        if (beat % 4 === 0) this.playPerc('kick', 0.12 * vol);
+        if (beat % 4 === 2) this.playPerc('snare', 0.1 * vol);
+        if (beat % 2 === 1) this.playPerc('hat', 0.06 * vol);
+        this.playPerc('hat', 0.03 * vol);
+        break;
+
+      case 'soft':
+        // Маша: light ticks, no kick, triangle
+        if (beat % 4 === 0) this.playPerc('triangle', 0.06 * vol);
+        if (beat % 2 === 1) this.playPerc('tick', 0.03 * vol);
+        break;
+
+      case 'funk':
+        // Коля: syncopated
+        if (beat % 4 === 0) this.playPerc('kick', 0.1 * vol);
+        if (beat % 4 === 3) this.playPerc('snare', 0.08 * vol);
+        this.playPerc('hat', 0.04 * vol);
+        if (beat % 3 === 0) this.playPerc('hat', 0.05 * vol);
+        break;
+
+      case 'bouncy':
+        // Даша: on-beat kicks, shaker off-beats
+        if (beat % 2 === 0) this.playPerc('kick', 0.08 * vol);
+        if (beat % 2 === 1) this.playPerc('shaker', 0.06 * vol);
+        if (beat % 4 === 0) this.playPerc('tick', 0.04 * vol);
+        break;
+
+      case 'circus':
+        // Петя: chaotic, cymbal crashes, rimshots
+        if (beat % 4 === 0) this.playPerc('kick', 0.1 * vol);
+        if (beat % 4 === 2) this.playPerc('rim', 0.08 * vol);
+        this.playPerc('hat', 0.04 * vol);
+        if (beat % 8 === 7) this.playPerc('crash', 0.07 * vol);
+        break;
+    }
+  }
+
   playPerc(type, volume) {
     const t = this.ctx.currentTime;
     const gain = this.ctx.createGain();
     gain.connect(this.compressor);
 
-    if (type === 'kick') {
-      gain.gain.setValueAtTime(volume * 1.5, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-      const osc = this.ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(150, t);
-      osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
-      osc.connect(gain);
-      osc.start(t);
-      osc.stop(t + 0.15);
-    } else if (type === 'tick') {
-      gain.gain.setValueAtTime(volume * 0.5, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-      const osc = this.ctx.createOscillator();
-      osc.type = 'square';
-      osc.frequency.value = 800;
-      osc.connect(gain);
-      osc.start(t);
-      osc.stop(t + 0.05);
-    } else if (type === 'hat') {
-      // Noise burst for hi-hat
-      gain.gain.setValueAtTime(volume * 0.3, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
-      const bufferSize = this.ctx.sampleRate * 0.03;
-      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * 0.5;
+    switch (type) {
+      case 'kick': {
+        gain.gain.setValueAtTime(volume * 1.5, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(150, t);
+        osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
+        osc.connect(gain);
+        osc.start(t);
+        osc.stop(t + 0.15);
+        break;
       }
-      // High-pass filter for metallic sound
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'highpass';
-      filter.frequency.value = 8000;
-      const source = this.ctx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(filter);
-      filter.connect(gain);
-      source.start(t);
+      case 'snare': {
+        // Noise burst + tone
+        gain.gain.setValueAtTime(volume, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+        const bufSize = this.ctx.sampleRate * 0.1;
+        const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1);
+        const bp = this.ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 3000;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(bp);
+        bp.connect(gain);
+        src.start(t);
+        break;
+      }
+      case 'hat': {
+        gain.gain.setValueAtTime(volume * 0.3, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+        const bufSize = this.ctx.sampleRate * 0.03;
+        const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * 0.5;
+        const hp = this.ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 8000;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(hp);
+        hp.connect(gain);
+        src.start(t);
+        break;
+      }
+      case 'tick': {
+        gain.gain.setValueAtTime(volume * 0.5, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+        const osc = this.ctx.createOscillator();
+        osc.type = 'square';
+        osc.frequency.value = 900;
+        osc.connect(gain);
+        osc.start(t);
+        osc.stop(t + 0.04);
+        break;
+      }
+      case 'triangle': {
+        gain.gain.setValueAtTime(volume * 0.6, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = 1200;
+        osc.connect(gain);
+        osc.start(t);
+        osc.stop(t + 0.4);
+        break;
+      }
+      case 'shaker': {
+        gain.gain.setValueAtTime(volume * 0.25, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+        const bufSize = this.ctx.sampleRate * 0.06;
+        const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * 0.3;
+        const hp = this.ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 6000;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(hp);
+        hp.connect(gain);
+        src.start(t);
+        break;
+      }
+      case 'rim': {
+        gain.gain.setValueAtTime(volume, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+        const osc = this.ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.value = 1800;
+        osc.connect(gain);
+        osc.start(t);
+        osc.stop(t + 0.03);
+        break;
+      }
+      case 'crash': {
+        gain.gain.setValueAtTime(volume * 0.5, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+        const bufSize = this.ctx.sampleRate * 0.4;
+        const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1);
+        const bp = this.ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 5000;
+        bp.Q.value = 0.5;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(bp);
+        bp.connect(gain);
+        src.start(t);
+        break;
+      }
     }
   }
 }

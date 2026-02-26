@@ -8,6 +8,7 @@ function createWindow() {
     width: 1280,
     height: 720,
     useContentSize: true,
+    fullscreen: true,
     title: 'Sifa Playground',
     webPreferences: {
       nodeIntegration: false,
@@ -28,6 +29,14 @@ app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
   app.quit();
+});
+
+// F11 fullscreen toggle
+ipcMain.handle('toggle-fullscreen', async () => {
+  if (!mainWindow) return false;
+  const isFull = mainWindow.isFullScreen();
+  mainWindow.setFullScreen(!isFull);
+  return !isFull;
 });
 
 // Groq API will be handled here in Phase 5
