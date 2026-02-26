@@ -1,7 +1,8 @@
 export class UIOverlay {
-  constructor(agentManager, sifaRules) {
+  constructor(agentManager, sifaRules, smartCamera) {
     this.agentManager = agentManager;
     this.sifaRules = sifaRules;
+    this.smartCamera = smartCamera;
     this.scoreboard = document.getElementById('scoreboard');
     this.overlay = document.getElementById('ui-overlay');
     this.speechContainer = document.getElementById('speech-container');
@@ -13,6 +14,12 @@ export class UIOverlay {
     this.learnPanel.id = 'learn-panel';
     this.learnPanel.innerHTML = '';
     document.body.appendChild(this.learnPanel);
+
+    // First-person HUD overlay
+    this.fpHud = document.createElement('div');
+    this.fpHud.id = 'fp-hud';
+    this.fpHud.style.display = 'none';
+    document.body.appendChild(this.fpHud);
   }
 
   update() {
@@ -24,6 +31,7 @@ export class UIOverlay {
       this.updateLearningPanel();
     }
     this.updateSpeechBubbles();
+    this.updateFirstPersonHud();
   }
 
   updateScoreboard() {
@@ -75,9 +83,11 @@ export class UIOverlay {
 
   updateSpeechBubbles() {
     const agents = this.agentManager.agents;
+    // Hide speech bubbles in first-person mode (they'd be wrong position)
+    const isFP = this.smartCamera && (this.smartCamera.mode === 'first' || this.smartCamera.mode === 'cycle');
 
     agents.forEach(agent => {
-      if (agent.speechText && agent.speechTimer > 0) {
+      if (!isFP && agent.speechText && agent.speechTimer > 0) {
         let bubble = this.speechBubbles.get(agent.id);
         if (!bubble) {
           bubble = document.createElement('div');
@@ -99,5 +109,66 @@ export class UIOverlay {
         if (bubble) bubble.style.display = 'none';
       }
     });
+  }
+
+  updateFirstPersonHud() {
+    if (!this.smartCamera) return;
+    const mode = this.smartCamera.mode;
+    const isFP = (mode === 'first' || mode === 'cycle');
+
+    if (!isFP) {
+      this.fpHud.style.display = 'none';
+      return;
+    }
+
+    this.fpHud.style.display = 'block';
+    const agents = this.agentManager.agents;
+    const agent = agents.find(a => a.id === this.smartCamera.fpAgentId);
+    if (!agent) return;
+
+    const colorHex = '#' + agent.profile.color.toString(16).padStart(6, '0');
+    const stats = agent.brain.getStats();
+    const stateRu = {
+      'roam': 'Гуляю',
+      'flee': 'УБЕГАЮ!',
+      'hunt': 'ЛОВЛЮ!',
+      'taunt': 'Ха-ха!',
+    };
+    const stateText = stateRu[agent.state] || agent.state;
+
+    let html = `<div class="fp-name" style="color:${colorHex}">${agent.profile.name}</div>`;
+    html += `<div class="fp-state">${stateText}</div>`;
+    html += `<div class="fp-desc">${agent.profile.description}</div>`;
+    html += `<div class="fp-brain">Поколение: ${stats.generation} · Уроков: ${stats.lessons}</div>`;
+
+    if (agent.isIt) {
+      html += `<div class="fp-role" style="color:#ff4444">ВОДЯЩИЙ</div>`;
+    } else {
+      const mins = Math.floor(agent.score / 60);
+      const secs = Math.floor(agent.score % 60);
+      html += `<div class="fp-role">Выживание: ${mins}:${secs.toString().padStart(2, '0')}</div>`;
+    }
+
+    // Show nearby agents
+    const nearby = agents
+      .filter(a => a.id !== agent.id)
+      .map(a => ({ name: a.profile.name, dist: agent.distanceTo(a), isIt: a.isIt, color: a.profile.color }))
+      .sort((a, b) => a.dist - b.dist);
+
+    html += `<div class="fp-nearby">`;
+    nearby.forEach(n => {
+      const c = '#' + n.color.toString(16).padStart(6, '0');
+      const marker = n.isIt ? ' [СИФА!]' : '';
+      html += `<span style="color:${c}">● ${n.name}</span>: ${n.dist.toFixed(1)}м${marker}<br>`;
+    });
+    html += `</div>`;
+
+    if (mode === 'cycle') {
+      html += `<div class="fp-cycle">Авто-переключение</div>`;
+    } else {
+      html += `<div class="fp-cycle">Клавиши 1-5: сменить агента</div>`;
+    }
+
+    this.fpHud.innerHTML = html;
   }
 }

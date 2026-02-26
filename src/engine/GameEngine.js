@@ -9,6 +9,8 @@ import { MusicPlayer } from '../audio/MusicPlayer.js';
 import { VoiceManager } from '../audio/VoiceManager.js';
 import { SmartCamera } from '../renderer/SmartCamera.js';
 
+const CAMERA_MODES = ['ai', 'first', 'spectator', 'cycle', 'free'];
+
 export class GameEngine {
   constructor() {
     // Three.js
@@ -30,19 +32,19 @@ export class GameEngine {
     this.camera.position.set(0, 18, 22);
     this.camera.lookAt(0, 0, 0);
 
-    // OrbitControls (free camera mode)
+    // OrbitControls (free camera mode only)
     this.orbitControls = new OrbitControls(this.camera, this.canvas);
     this.orbitControls.enableDamping = true;
     this.orbitControls.dampingFactor = 0.08;
     this.orbitControls.maxPolarAngle = Math.PI / 2.2;
-    this.orbitControls.minDistance = 8;
+    this.orbitControls.minDistance = 5;
     this.orbitControls.maxDistance = 40;
     this.orbitControls.target.set(0, 0, 0);
-    this.orbitControls.enabled = false; // AI camera is default
+    this.orbitControls.enabled = false;
 
-    // Smart AI camera (follows IT agent)
+    // Smart camera (all modes except free)
     this.smartCamera = new SmartCamera(this.camera);
-    this.cameraMode = 'ai'; // 'ai' or 'free'
+    this.cameraModeIndex = 0;
 
     // Lighting
     this.setupLighting();
@@ -58,14 +60,14 @@ export class GameEngine {
     this.music = new MusicPlayer();
     this.voice = new VoiceManager();
     this.sifaRules = new SifaRules(this.agentManager, this.voice);
-    this.ui = new UIOverlay(this.agentManager, this.sifaRules);
+    this.ui = new UIOverlay(this.agentManager, this.sifaRules, this.smartCamera);
 
     // Game loop
     this.fixedStep = 1 / 60;
     this.accumulator = 0;
     this.lastTime = 0;
     this.aiTimer = 0;
-    this.AI_INTERVAL = 0.6; // seconds between AI decisions
+    this.AI_INTERVAL = 0.6;
 
     // Resize
     window.addEventListener('resize', () => this.onResize());
@@ -97,7 +99,7 @@ export class GameEngine {
     this.sifaRules.initialize();
     this.lastTime = performance.now() / 1000;
 
-    // Start music on first user interaction (browser autoplay policy)
+    // Start music on first user interaction
     const hint = document.getElementById('start-hint');
     const startAudio = () => {
       this.music.start();
@@ -111,6 +113,7 @@ export class GameEngine {
     // Control buttons
     const btnMusic = document.getElementById('btn-music');
     const btnVoice = document.getElementById('btn-voice');
+    const btnCamera = document.getElementById('btn-camera');
     let musicOn = true, voiceOn = true;
 
     btnMusic.addEventListener('click', (e) => {
@@ -125,20 +128,47 @@ export class GameEngine {
       this.voice.setEnabled(voiceOn);
       btnVoice.textContent = voiceOn ? 'Голоса: ВКЛ' : 'Голоса: ВЫКЛ';
     });
-
-    // Camera mode toggle
-    const btnCamera = document.getElementById('btn-camera');
     btnCamera.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.toggleCamera();
-      btnCamera.textContent = this.cameraMode === 'ai' ? 'Камера: AI' : 'Камера: Свободная';
+      this.nextCameraMode();
+      this.updateCameraButton(btnCamera);
     });
 
-    // Keyboard: C = toggle camera
+    // Keyboard controls
     document.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyC' && !e.ctrlKey && !e.altKey) {
-        this.toggleCamera();
-        btnCamera.textContent = this.cameraMode === 'ai' ? 'Камера: AI' : 'Камера: Свободная';
+      if (e.ctrlKey || e.altKey) return;
+
+      switch (e.code) {
+        // C = next camera mode
+        case 'KeyC':
+          this.nextCameraMode();
+          this.updateCameraButton(btnCamera);
+          break;
+
+        // 1-5 = first-person view of specific agent
+        case 'Digit1': case 'Digit2': case 'Digit3':
+        case 'Digit4': case 'Digit5': {
+          const agentId = parseInt(e.code.charAt(5)) - 1;
+          this.switchToFirstPerson(agentId);
+          this.updateCameraButton(btnCamera);
+          break;
+        }
+
+        // V = spectator overview
+        case 'KeyV':
+          this.setCameraMode('spectator');
+          this.updateCameraButton(btnCamera);
+          break;
+
+        // A = auto-cycle between agents
+        case 'KeyA':
+          if (this.smartCamera.mode === 'cycle') {
+            this.setCameraMode('ai');
+          } else {
+            this.setCameraMode('cycle');
+          }
+          this.updateCameraButton(btnCamera);
+          break;
       }
     });
 
@@ -173,15 +203,16 @@ export class GameEngine {
     this.agentManager.interpolate(alpha);
 
     // Camera update
-    if (this.cameraMode === 'ai') {
+    const mode = this.smartCamera.mode;
+    if (mode === 'free') {
+      this.orbitControls.update();
+    } else {
       this.smartCamera.update(
         frameDt,
         this.agentManager.agents,
         this.sifaRules.itAgentId,
         this.sifaRules
       );
-    } else {
-      this.orbitControls.update();
     }
 
     this.ui.update();
@@ -198,20 +229,48 @@ export class GameEngine {
     }
   }
 
-  toggleCamera() {
-    if (this.cameraMode === 'ai') {
-      this.cameraMode = 'free';
-      this.smartCamera.setEnabled(false);
-      this.orbitControls.enabled = true;
-      // Set orbit target to current look-at so transition is smooth
-      this.orbitControls.target.copy(this.smartCamera.currentLookAt);
-    } else {
-      this.cameraMode = 'ai';
+  // === CAMERA MODE MANAGEMENT ===
+
+  nextCameraMode() {
+    this.cameraModeIndex = (this.cameraModeIndex + 1) % CAMERA_MODES.length;
+    this.setCameraMode(CAMERA_MODES[this.cameraModeIndex]);
+  }
+
+  setCameraMode(mode) {
+    const prevMode = this.smartCamera.mode;
+
+    // Disable orbit when leaving free mode
+    if (prevMode === 'free') {
       this.orbitControls.enabled = false;
-      this.smartCamera.setEnabled(true);
-      // Initialize smart camera from current position
-      this.smartCamera.currentPos.copy(this.camera.position);
     }
+
+    if (mode === 'free') {
+      this.orbitControls.enabled = true;
+      this.orbitControls.target.copy(this.smartCamera.currentLookAt);
+      this.smartCamera.setMode('free');
+    } else {
+      this.orbitControls.enabled = false;
+      this.smartCamera.setMode(mode);
+      // Init position from current camera
+      if (prevMode === 'free') {
+        this.smartCamera.currentPos.copy(this.camera.position);
+      }
+    }
+
+    // Sync mode index
+    this.cameraModeIndex = CAMERA_MODES.indexOf(mode);
+    if (this.cameraModeIndex === -1) this.cameraModeIndex = 0;
+  }
+
+  switchToFirstPerson(agentId) {
+    this.setCameraMode('first');
+    this.smartCamera.setFirstPersonAgent(agentId);
+  }
+
+  updateCameraButton(btn) {
+    const name = this.smartCamera.getModeName();
+    const agentName = this.smartCamera.getFirstPersonAgentName(this.agentManager.agents);
+    btn.textContent = agentName ? `${name}: ${agentName}` : name;
   }
 
   onResize() {

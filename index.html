@@ -63,6 +63,72 @@
       line-height: 1.5;
       min-width: 260px;
     }
+    #fp-hud {
+      position: absolute;
+      bottom: 50px;
+      left: 10px;
+      color: #fff;
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 13px;
+      text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
+      pointer-events: none;
+      line-height: 1.6;
+    }
+    .fp-name {
+      font-size: 22px;
+      font-weight: bold;
+      margin-bottom: 2px;
+    }
+    .fp-state {
+      font-size: 16px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+    .fp-desc {
+      opacity: 0.7;
+      font-style: italic;
+      margin-bottom: 6px;
+    }
+    .fp-brain { opacity: 0.8; }
+    .fp-role {
+      font-size: 15px;
+      font-weight: bold;
+      margin: 4px 0;
+    }
+    .fp-nearby {
+      margin-top: 8px;
+      font-size: 12px;
+      opacity: 0.9;
+    }
+    .fp-cycle {
+      margin-top: 6px;
+      font-size: 11px;
+      opacity: 0.5;
+    }
+    /* Crosshair for first-person */
+    #fp-hud::before {
+      content: '+';
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 24px;
+      color: rgba(255,255,255,0.4);
+      pointer-events: none;
+    }
+    #hotkeys {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255,255,255,0.5);
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 11px;
+      pointer-events: none;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.6);
+      white-space: nowrap;
+    }
     #controls {
       position: absolute;
       bottom: 12px;
@@ -106,6 +172,7 @@
   <div id="scoreboard"></div>
   <div id="speech-container"></div>
   <div id="start-hint">Кликни чтобы начать игру!</div>
+  <div id="hotkeys">C: камера · 1-5: от лица агента · V: обзор · A: авто-цикл</div>
   <div id="controls">
     <button id="btn-camera">Камера: AI</button>
     <button id="btn-music">Музыка: ВКЛ</button>
