@@ -77,13 +77,51 @@ export class Agent {
       group.add(pupil);
     });
 
-    // IT indicator (crown/glow — hidden by default)
-    const crownGeo = new THREE.ConeGeometry(0.15, 0.2, 5);
+    // Glowing aura for IT agent (hidden by default)
+    this.auraGroup = new THREE.Group();
+    this.auraGroup.visible = false;
+
+    // Inner glow sphere
+    const auraGeo = new THREE.SphereGeometry(0.6, 16, 12);
+    const auraMat = new THREE.MeshBasicMaterial({
+      color: 0xFF4400,
+      transparent: true,
+      opacity: 0.2,
+      side: THREE.BackSide,
+    });
+    this.auraMesh = new THREE.Mesh(auraGeo, auraMat);
+    this.auraGroup.add(this.auraMesh);
+
+    // Outer glow ring (larger, more transparent)
+    const outerGeo = new THREE.SphereGeometry(0.9, 16, 12);
+    const outerMat = new THREE.MeshBasicMaterial({
+      color: 0xFF6600,
+      transparent: true,
+      opacity: 0.08,
+      side: THREE.BackSide,
+    });
+    this.outerAura = new THREE.Mesh(outerGeo, outerMat);
+    this.auraGroup.add(this.outerAura);
+
+    // Floating crown above head
+    const crownGeo = new THREE.ConeGeometry(0.15, 0.25, 5);
     const crownMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 });
     this.crown = new THREE.Mesh(crownGeo, crownMat);
-    this.crown.position.y = 0.55;
-    this.crown.visible = false;
-    group.add(this.crown);
+    this.crown.position.y = 0.7;
+    this.auraGroup.add(this.crown);
+
+    // Light pillar (vertical beam above agent)
+    const pillarGeo = new THREE.CylinderGeometry(0.05, 0.15, 1.5, 8);
+    const pillarMat = new THREE.MeshBasicMaterial({
+      color: 0xFF8800,
+      transparent: true,
+      opacity: 0.15,
+    });
+    this.pillar = new THREE.Mesh(pillarGeo, pillarMat);
+    this.pillar.position.y = 1.2;
+    this.auraGroup.add(this.pillar);
+
+    group.add(this.auraGroup);
 
     // Blob shadow
     const shadowGeo = new THREE.CircleGeometry(0.35, 8);
@@ -110,7 +148,21 @@ export class Agent {
 
     // Update state
     this.isIt = this.id === itAgentId;
-    this.crown.visible = this.isIt;
+    this.auraGroup.visible = this.isIt;
+
+    // Animate aura pulsing
+    if (this.isIt) {
+      const pulse = Math.sin(Date.now() * 0.005) * 0.5 + 0.5; // 0..1
+      const scale = 1.0 + pulse * 0.3;
+      this.auraMesh.scale.setScalar(scale);
+      this.outerAura.scale.setScalar(scale * 1.2);
+      this.auraMesh.material.opacity = 0.15 + pulse * 0.15;
+      this.outerAura.material.opacity = 0.05 + pulse * 0.06;
+      this.pillar.material.opacity = 0.1 + pulse * 0.1;
+      // Crown floats up and down
+      this.crown.position.y = 0.7 + Math.sin(Date.now() * 0.003) * 0.1;
+      this.crown.rotation.y += 0.02;
+    }
 
     // Taunt timer
     if (this.state === STATES.TAUNT) {

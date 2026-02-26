@@ -23,8 +23,9 @@ const HUNT_SHOUTS = [
 ];
 
 export class SifaRules {
-  constructor(agentManager) {
+  constructor(agentManager, voiceManager) {
     this.agentManager = agentManager;
+    this.voice = voiceManager;
     this.itAgentId = 0;
     this.cooldowns = new Map(); // agentId → expiry time
     this.COOLDOWN_TIME = 3.0; // seconds
@@ -40,6 +41,7 @@ export class SifaRules {
     const it = this.agentManager.agents[this.itAgentId];
     it.isIt = true;
     it.say('Я вожу!', 2.5);
+    this.voice.speak(it.id, 'Я вожу!');
   }
 
   update(dt) {
@@ -55,9 +57,13 @@ export class SifaRules {
       this.shoutTimer = 2 + Math.random() * 4;
       const randomAgent = agents[Math.floor(Math.random() * agents.length)];
       if (randomAgent.state === 'flee' && Math.random() > 0.5) {
-        randomAgent.say(FLEE_SHOUTS[Math.floor(Math.random() * FLEE_SHOUTS.length)]);
+        const text = FLEE_SHOUTS[Math.floor(Math.random() * FLEE_SHOUTS.length)];
+        randomAgent.say(text);
+        this.voice.speak(randomAgent.id, text);
       } else if (randomAgent.isIt && Math.random() > 0.5) {
-        randomAgent.say(HUNT_SHOUTS[Math.floor(Math.random() * HUNT_SHOUTS.length)]);
+        const text = HUNT_SHOUTS[Math.floor(Math.random() * HUNT_SHOUTS.length)];
+        randomAgent.say(text);
+        this.voice.speak(randomAgent.id, text);
       }
     }
 
@@ -86,12 +92,16 @@ export class SifaRules {
       time: this.gameTime,
     });
 
-    // Shout СИФА!
-    tagger.say(SIFA_SHOUTS[Math.floor(Math.random() * SIFA_SHOUTS.length)], 2.0);
-    tagged.say('О нет!!! 😱', 1.5);
+    // Shout СИФА! with voice
+    const shout = SIFA_SHOUTS[Math.floor(Math.random() * SIFA_SHOUTS.length)];
+    tagger.say(shout, 2.0);
+    tagged.say('О нет!!!', 1.5);
+    this.voice.playTagSound();
+    this.voice.speak(tagger.id, shout);
 
     // Tagger celebrates briefly
     tagger.startTaunt(1.0);
+    if (Math.random() > 0.5) this.voice.playLaughSound();
 
     // Transfer IT
     tagger.isIt = false;

@@ -5,6 +5,8 @@ import { Playground } from '../game/Playground.js';
 import { AgentManager } from '../agents/AgentManager.js';
 import { SifaRules } from '../game/SifaRules.js';
 import { UIOverlay } from '../renderer/UIOverlay.js';
+import { MusicPlayer } from '../audio/MusicPlayer.js';
+import { VoiceManager } from '../audio/VoiceManager.js';
 
 export class GameEngine {
   constructor() {
@@ -46,7 +48,9 @@ export class GameEngine {
     // Game modules
     this.playground = new Playground(this.scene, this.world);
     this.agentManager = new AgentManager(this.scene, this.world);
-    this.sifaRules = new SifaRules(this.agentManager);
+    this.music = new MusicPlayer();
+    this.voice = new VoiceManager();
+    this.sifaRules = new SifaRules(this.agentManager, this.voice);
     this.ui = new UIOverlay(this.agentManager, this.sifaRules);
 
     // Game loop
@@ -85,6 +89,36 @@ export class GameEngine {
   start() {
     this.sifaRules.initialize();
     this.lastTime = performance.now() / 1000;
+
+    // Start music on first user interaction (browser autoplay policy)
+    const hint = document.getElementById('start-hint');
+    const startAudio = () => {
+      this.music.start();
+      if (hint) hint.style.display = 'none';
+      document.removeEventListener('click', startAudio);
+      document.removeEventListener('keydown', startAudio);
+    };
+    document.addEventListener('click', startAudio);
+    document.addEventListener('keydown', startAudio);
+
+    // Control buttons
+    const btnMusic = document.getElementById('btn-music');
+    const btnVoice = document.getElementById('btn-voice');
+    let musicOn = true, voiceOn = true;
+
+    btnMusic.addEventListener('click', (e) => {
+      e.stopPropagation();
+      musicOn = !musicOn;
+      if (musicOn) { this.music.start(); btnMusic.textContent = 'Музыка: ВКЛ'; }
+      else { this.music.stop(); btnMusic.textContent = 'Музыка: ВЫКЛ'; }
+    });
+    btnVoice.addEventListener('click', (e) => {
+      e.stopPropagation();
+      voiceOn = !voiceOn;
+      this.voice.setEnabled(voiceOn);
+      btnVoice.textContent = voiceOn ? 'Голоса: ВКЛ' : 'Голоса: ВЫКЛ';
+    });
+
     requestAnimationFrame((t) => this.loop(t));
   }
 

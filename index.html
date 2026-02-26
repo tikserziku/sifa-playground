@@ -41,6 +41,47 @@
       pointer-events: none;
       transform: translate(-50%, -100%);
       white-space: nowrap;
+      animation: bubble-pop 0.3s ease-out;
+    }
+    @keyframes bubble-pop {
+      0% { transform: translate(-50%, -100%) scale(0); }
+      70% { transform: translate(-50%, -100%) scale(1.15); }
+      100% { transform: translate(-50%, -100%) scale(1); }
+    }
+    #controls {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      display: flex;
+      gap: 8px;
+    }
+    #controls button {
+      background: rgba(0,0,0,0.5);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #controls button:hover { background: rgba(0,0,0,0.7); }
+    #start-hint {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff;
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 22px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+      animation: hint-pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes hint-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
     }
   </style>
 </head>
@@ -49,6 +90,11 @@
   <div id="ui-overlay">SIFA PLAYGROUND</div>
   <div id="scoreboard"></div>
   <div id="speech-container"></div>
+  <div id="start-hint">Кликни чтобы начать игру!</div>
+  <div id="controls">
+    <button id="btn-music">Музыка: ВКЛ</button>
+    <button id="btn-voice">Голоса: ВКЛ</button>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
