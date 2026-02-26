@@ -9,10 +9,9 @@ export class AgentManager {
     }
   }
 
-  fixedUpdate(dt) {
-    // itAgentId is set by SifaRules
+  fixedUpdate(dt, prevItAgentId) {
     const itId = this.agents.find(a => a.isIt)?.id ?? 0;
-    this.agents.forEach(a => a.fixedUpdate(dt, this.agents, itId));
+    this.agents.forEach(a => a.fixedUpdate(dt, this.agents, itId, prevItAgentId));
   }
 
   interpolate(alpha) {

@@ -139,7 +139,7 @@ export class Agent {
     return group;
   }
 
-  fixedUpdate(dt, allAgents, itAgentId) {
+  fixedUpdate(dt, allAgents, itAgentId, prevItAgentId) {
     this.prevPosition.set(
       this.body.position.x,
       this.body.position.y,
@@ -190,8 +190,8 @@ export class Agent {
 
     switch (this.state) {
       case STATES.HUNT: {
-        // Chase nearest non-IT agent
-        const target = this.findNearestRunner(allAgents, itAgentId);
+        // Chase nearest non-IT agent (skip who just tagged us)
+        const target = this.findNearestRunner(allAgents, itAgentId, prevItAgentId);
         if (target) {
           const dx = target.body.position.x - this.body.position.x;
           const dz = target.body.position.z - this.body.position.z;
@@ -309,11 +309,12 @@ export class Agent {
     return Math.sqrt(dx * dx + dz * dz);
   }
 
-  findNearestRunner(allAgents, itAgentId) {
+  findNearestRunner(allAgents, itAgentId, skipAgentId) {
     let nearest = null;
     let minDist = Infinity;
     allAgents.forEach(a => {
       if (a.id === itAgentId) return;
+      if (a.id === skipAgentId) return; // can't chase who just tagged us
       const d = this.distanceTo(a);
       if (d < minDist) {
         minDist = d;

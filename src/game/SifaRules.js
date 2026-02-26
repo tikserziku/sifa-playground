@@ -27,8 +27,9 @@ export class SifaRules {
     this.agentManager = agentManager;
     this.voice = voiceManager;
     this.itAgentId = 0;
-    this.cooldowns = new Map(); // agentId → expiry time
-    this.COOLDOWN_TIME = 3.0; // seconds
+    this.prevItAgentId = -1;     // who was IT before — can't tag them back
+    this.cooldowns = new Map();  // agentId → expiry time
+    this.COOLDOWN_TIME = 3.0;    // seconds
     this.TAG_DISTANCE = 1.2;
     this.tagHistory = [];
     this.gameTime = 0;
@@ -70,6 +71,7 @@ export class SifaRules {
     // Check tag
     agents.forEach(target => {
       if (target.id === this.itAgentId) return;
+      if (target.id === this.prevItAgentId) return; // can't tag back who just tagged you
       if (this.isOnCooldown(target.id)) return;
 
       const dist = it.distanceTo(target);
@@ -106,9 +108,10 @@ export class SifaRules {
     // Transfer IT
     tagger.isIt = false;
     tagged.isIt = true;
+    this.prevItAgentId = tagger.id;  // remember who just was IT — immune until new tag
     this.itAgentId = tagged.id;
 
-    // Cooldown: tagger can't be tagged back immediately
+    // Cooldown: tagger can't be tagged back immediately (backup timer)
     this.cooldowns.set(tagger.id, this.gameTime + this.COOLDOWN_TIME);
   }
 

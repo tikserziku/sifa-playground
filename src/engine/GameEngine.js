@@ -7,6 +7,7 @@ import { SifaRules } from '../game/SifaRules.js';
 import { UIOverlay } from '../renderer/UIOverlay.js';
 import { MusicPlayer } from '../audio/MusicPlayer.js';
 import { VoiceManager } from '../audio/VoiceManager.js';
+import { SmartCamera } from '../renderer/SmartCamera.js';
 
 export class GameEngine {
   constructor() {
@@ -29,13 +30,19 @@ export class GameEngine {
     this.camera.position.set(0, 18, 22);
     this.camera.lookAt(0, 0, 0);
 
-    this.controls = new OrbitControls(this.camera, this.canvas);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
-    this.controls.maxPolarAngle = Math.PI / 2.2;
-    this.controls.minDistance = 8;
-    this.controls.maxDistance = 40;
-    this.controls.target.set(0, 0, 0);
+    // OrbitControls (free camera mode)
+    this.orbitControls = new OrbitControls(this.camera, this.canvas);
+    this.orbitControls.enableDamping = true;
+    this.orbitControls.dampingFactor = 0.08;
+    this.orbitControls.maxPolarAngle = Math.PI / 2.2;
+    this.orbitControls.minDistance = 8;
+    this.orbitControls.maxDistance = 40;
+    this.orbitControls.target.set(0, 0, 0);
+    this.orbitControls.enabled = false; // AI camera is default
+
+    // Smart AI camera (follows IT agent)
+    this.smartCamera = new SmartCamera(this.camera);
+    this.cameraMode = 'ai'; // 'ai' or 'free'
 
     // Lighting
     this.setupLighting();
@@ -119,6 +126,22 @@ export class GameEngine {
       btnVoice.textContent = voiceOn ? 'Голоса: ВКЛ' : 'Голоса: ВЫКЛ';
     });
 
+    // Camera mode toggle
+    const btnCamera = document.getElementById('btn-camera');
+    btnCamera.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleCamera();
+      btnCamera.textContent = this.cameraMode === 'ai' ? 'Камера: AI' : 'Камера: Свободная';
+    });
+
+    // Keyboard: C = toggle camera
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyC' && !e.ctrlKey && !e.altKey) {
+        this.toggleCamera();
+        btnCamera.textContent = this.cameraMode === 'ai' ? 'Камера: AI' : 'Камера: Свободная';
+      }
+    });
+
     requestAnimationFrame((t) => this.loop(t));
   }
 
@@ -133,7 +156,7 @@ export class GameEngine {
     // Fixed timestep physics
     while (this.accumulator >= this.fixedStep) {
       this.world.step(this.fixedStep);
-      this.agentManager.fixedUpdate(this.fixedStep);
+      this.agentManager.fixedUpdate(this.fixedStep, this.sifaRules.prevItAgentId);
       this.sifaRules.update(this.fixedStep);
       this.accumulator -= this.fixedStep;
     }
@@ -148,7 +171,19 @@ export class GameEngine {
     // Render
     const alpha = this.accumulator / this.fixedStep;
     this.agentManager.interpolate(alpha);
-    this.controls.update();
+
+    // Camera update
+    if (this.cameraMode === 'ai') {
+      this.smartCamera.update(
+        frameDt,
+        this.agentManager.agents,
+        this.sifaRules.itAgentId,
+        this.sifaRules
+      );
+    } else {
+      this.orbitControls.update();
+    }
+
     this.ui.update();
     this.renderer.render(this.scene, this.camera);
   }
@@ -160,6 +195,22 @@ export class GameEngine {
       this.agentManager.applyDecisions(decisions);
     } catch (e) {
       // Fallback: agents continue with last decision
+    }
+  }
+
+  toggleCamera() {
+    if (this.cameraMode === 'ai') {
+      this.cameraMode = 'free';
+      this.smartCamera.setEnabled(false);
+      this.orbitControls.enabled = true;
+      // Set orbit target to current look-at so transition is smooth
+      this.orbitControls.target.copy(this.smartCamera.currentLookAt);
+    } else {
+      this.cameraMode = 'ai';
+      this.orbitControls.enabled = false;
+      this.smartCamera.setEnabled(true);
+      // Initialize smart camera from current position
+      this.smartCamera.currentPos.copy(this.camera.position);
     }
   }
 
