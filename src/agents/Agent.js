@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { AgentBrain } from './AgentBrain.js';
+import { createChildModel } from '../renderer/ChildModel.js';
 
 const STATES = {
   ROAM: 'roam',
@@ -37,18 +38,19 @@ export class Agent {
     this.mesh = this.createMesh(profile.color);
     scene.add(this.mesh);
 
-    // Cannon-es body
+    // Cannon-es body — sphere at feet level, rests on ground
     this.body = new CANNON.Body({
       mass: 1,
-      shape: new CANNON.Sphere(0.4),
+      shape: new CANNON.Sphere(0.2),
       linearDamping: 0.9,
       angularDamping: 1.0,
+      fixedRotation: true, // don't tumble
     });
     const angle = (id / 5) * Math.PI * 2;
     const spawnRadius = 5;
     this.body.position.set(
       Math.cos(angle) * spawnRadius,
-      0.5,
+      0.3, // slightly above ground, gravity will settle it
       Math.sin(angle) * spawnRadius
     );
     world.addBody(this.body);
@@ -57,37 +59,14 @@ export class Agent {
   }
 
   createMesh(color) {
-    const group = new THREE.Group();
-
-    // Body (capsule)
-    const bodyGeo = new THREE.CapsuleGeometry(0.3, 0.6, 4, 8);
-    const bodyMat = new THREE.MeshLambertMaterial({ color });
-    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-    bodyMesh.castShadow = true;
-    group.add(bodyMesh);
-
-    // Eyes
-    const eyeGeo = new THREE.SphereGeometry(0.06, 6, 6);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const pupilGeo = new THREE.SphereGeometry(0.03, 6, 6);
-    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
-
-    [-0.12, 0.12].forEach(xOff => {
-      const eye = new THREE.Mesh(eyeGeo, eyeMat);
-      eye.position.set(xOff, 0.15, 0.28);
-      group.add(eye);
-
-      const pupil = new THREE.Mesh(pupilGeo, pupilMat);
-      pupil.position.set(xOff, 0.15, 0.32);
-      group.add(pupil);
-    });
+    const group = createChildModel(this.id, color);
 
     // Glowing aura for IT agent (hidden by default)
     this.auraGroup = new THREE.Group();
     this.auraGroup.visible = false;
 
-    // Inner glow sphere
-    const auraGeo = new THREE.SphereGeometry(0.6, 16, 12);
+    // Inner glow sphere (around child body)
+    const auraGeo = new THREE.SphereGeometry(0.5, 16, 12);
     const auraMat = new THREE.MeshBasicMaterial({
       color: 0xFF4400,
       transparent: true,
@@ -95,10 +74,11 @@ export class Agent {
       side: THREE.BackSide,
     });
     this.auraMesh = new THREE.Mesh(auraGeo, auraMat);
+    this.auraMesh.position.y = 0.4;
     this.auraGroup.add(this.auraMesh);
 
-    // Outer glow ring (larger, more transparent)
-    const outerGeo = new THREE.SphereGeometry(0.9, 16, 12);
+    // Outer glow ring
+    const outerGeo = new THREE.SphereGeometry(0.75, 16, 12);
     const outerMat = new THREE.MeshBasicMaterial({
       color: 0xFF6600,
       transparent: true,
@@ -106,39 +86,40 @@ export class Agent {
       side: THREE.BackSide,
     });
     this.outerAura = new THREE.Mesh(outerGeo, outerMat);
+    this.outerAura.position.y = 0.4;
     this.auraGroup.add(this.outerAura);
 
     // Floating crown above head
-    const crownGeo = new THREE.ConeGeometry(0.15, 0.25, 5);
+    const crownGeo = new THREE.ConeGeometry(0.12, 0.2, 5);
     const crownMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 });
     this.crown = new THREE.Mesh(crownGeo, crownMat);
-    this.crown.position.y = 0.7;
+    this.crown.position.y = 0.95;
     this.auraGroup.add(this.crown);
 
-    // Light pillar (vertical beam above agent)
-    const pillarGeo = new THREE.CylinderGeometry(0.05, 0.15, 1.5, 8);
+    // Light pillar
+    const pillarGeo = new THREE.CylinderGeometry(0.04, 0.12, 1.2, 8);
     const pillarMat = new THREE.MeshBasicMaterial({
       color: 0xFF8800,
       transparent: true,
       opacity: 0.15,
     });
     this.pillar = new THREE.Mesh(pillarGeo, pillarMat);
-    this.pillar.position.y = 1.2;
+    this.pillar.position.y = 1.4;
     this.auraGroup.add(this.pillar);
 
     group.add(this.auraGroup);
 
-    // Blob shadow
-    const shadowGeo = new THREE.CircleGeometry(0.35, 8);
+    // Blob shadow (bigger for child)
+    const shadowGeo = new THREE.CircleGeometry(0.25, 8);
     const shadowMat = new THREE.MeshBasicMaterial({
       color: 0x000000,
       transparent: true,
-      opacity: 0.25,
+      opacity: 0.3,
       depthWrite: false,
     });
     this.shadow = new THREE.Mesh(shadowGeo, shadowMat);
     this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.position.y = -0.49;
+    this.shadow.position.y = -0.01;
     group.add(this.shadow);
 
     return group;
@@ -284,7 +265,12 @@ export class Agent {
     // Apply velocity
     this.body.velocity.x = vx;
     this.body.velocity.z = vz;
-    this.body.position.y = 0.5; // Keep on ground
+
+    // Keep on ground — physics gravity pulls down, clamp at ground level
+    if (this.body.position.y < 0.2) {
+      this.body.position.y = 0.2;
+      this.body.velocity.y = 0;
+    }
 
     // Face movement direction
     if (Math.abs(vx) > 0.1 || Math.abs(vz) > 0.1) {
@@ -326,7 +312,51 @@ export class Agent {
       new THREE.Vector3(this.body.position.x, this.body.position.y, this.body.position.z),
       alpha
     );
-    this.mesh.position.copy(this.renderPosition);
+    // Position mesh so feet touch the ground (body center is at physics y)
+    this.mesh.position.set(
+      this.renderPosition.x,
+      this.renderPosition.y - 0.2, // offset: physics sphere center → feet
+      this.renderPosition.z
+    );
+
+    const vx = this.body.velocity.x;
+    const vz = this.body.velocity.z;
+    const speed = Math.sqrt(vx * vx + vz * vz);
+
+    const { leftArm, rightArm, leftLeg, rightLeg } = this.mesh.userData;
+
+    if (speed > 0.5) {
+      // Running animation
+      const freq = 0.012 * (speed / 3);
+      const t = Date.now() * freq;
+      const amplitude = Math.min(speed * 0.12, 0.7);
+
+      // Arms swing opposite to legs (natural running)
+      if (leftArm) leftArm.rotation.x = Math.sin(t) * amplitude;
+      if (rightArm) rightArm.rotation.x = -Math.sin(t) * amplitude;
+
+      // Legs swing
+      if (leftLeg) leftLeg.rotation.x = -Math.sin(t) * amplitude * 0.9;
+      if (rightLeg) rightLeg.rotation.x = Math.sin(t) * amplitude * 0.9;
+
+      // Body bounce (up-down hop while running)
+      this.mesh.position.y += Math.abs(Math.sin(t * 2)) * 0.025;
+
+      // Slight body lean forward when running fast
+      this.mesh.rotation.x = Math.min(speed * 0.015, 0.1);
+    } else {
+      // Idle — gentle breathing
+      const breathe = Math.sin(Date.now() * 0.002 + this.id) * 0.008;
+      this.mesh.position.y += breathe;
+      this.mesh.rotation.x = 0;
+
+      // Arms relax with subtle sway
+      const idleSway = Math.sin(Date.now() * 0.001 + this.id * 3) * 0.05;
+      if (leftArm) leftArm.rotation.x = idleSway;
+      if (rightArm) rightArm.rotation.x = -idleSway;
+      if (leftLeg) leftLeg.rotation.x = 0;
+      if (rightLeg) rightLeg.rotation.x = 0;
+    }
   }
 
   distanceTo(other) {

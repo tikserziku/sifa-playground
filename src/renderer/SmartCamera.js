@@ -50,6 +50,7 @@ export class SmartCamera {
 
     // === First-person mode ===
     this.fpAgentId = 0;           // which agent we're looking through
+    this.fpPrevAgentId = -1;      // track for show/hide mesh
     this.fpBobPhase = 0;          // head bob animation
     this.fpSmoothDir = new THREE.Vector3(0, 0, 1);
     this.FP_EYE_HEIGHT = 0.35;   // eye level above body center
@@ -75,6 +76,7 @@ export class SmartCamera {
 
   update(dt, agents, itAgentId, sifaRules) {
     if (!this.enabled || !agents || agents.length === 0) return;
+    this._agents = agents; // store reference for restoreAllMeshes()
 
     switch (this.mode) {
       case 'ai':
@@ -87,7 +89,7 @@ export class SmartCamera {
         this.updateSpectator(dt, agents);
         break;
       case 'cycle':
-        this.updateCycleMode(dt, agents);
+        this.updateCycleMode(dt, agents, itAgentId);
         break;
     }
 
@@ -165,6 +167,16 @@ export class SmartCamera {
     const agent = agents.find(a => a.id === agentId);
     if (!agent) return;
 
+    // Hide current agent mesh, show previous
+    if (this.fpPrevAgentId !== agentId) {
+      if (this.fpPrevAgentId >= 0) {
+        const prev = agents.find(a => a.id === this.fpPrevAgentId);
+        if (prev) prev.mesh.visible = true;
+      }
+      agent.mesh.visible = false;
+      this.fpPrevAgentId = agentId;
+    }
+
     const px = agent.body.position.x;
     const pz = agent.body.position.z;
     const vx = agent.body.velocity.x;
@@ -186,17 +198,18 @@ export class SmartCamera {
     const bobY = Math.sin(this.fpBobPhase) * this.FP_BOB_AMOUNT;
     const bobX = Math.cos(this.fpBobPhase * 0.5) * this.FP_BOB_AMOUNT * 0.5;
 
-    // Eye position: at agent center + eye height + bob
+    // Eye position: child's eye level (model eyes at ~0.60 from ground)
+    const eyeY = 0.58;
     this.targetPos.set(
       px + this.fpSmoothDir.x * 0.1 + bobX,
-      0.5 + this.FP_EYE_HEIGHT + bobY,
+      eyeY + bobY,
       pz + this.fpSmoothDir.z * 0.1
     );
 
-    // Look forward in movement direction (2 units ahead)
+    // Look forward in movement direction (3 units ahead)
     this.targetLookAt.set(
       px + this.fpSmoothDir.x * 3,
-      0.5 + this.FP_EYE_HEIGHT * 0.8,
+      eyeY * 0.85,
       pz + this.fpSmoothDir.z * 3
     );
 
@@ -238,17 +251,15 @@ export class SmartCamera {
   }
 
   // ===========================
-  //  CYCLE MODE (auto first-person)
+  //  CYCLE MODE (always follow the IT agent — сифа)
   // ===========================
-  updateCycleMode(dt, agents) {
-    this.cycleTimer += dt;
-    if (this.cycleTimer >= this.CYCLE_INTERVAL) {
-      this.cycleTimer = 0;
-      this.cycleAgentIndex = (this.cycleAgentIndex + 1) % agents.length;
-      this.fpAgentId = agents[this.cycleAgentIndex].id;
-      this.shakeAmount = 0.1; // subtle transition effect
+  updateCycleMode(dt, agents, itAgentId) {
+    // Always follow whoever is IT (сифа)
+    if (this.fpAgentId !== itAgentId) {
+      this.fpAgentId = itAgentId;
+      this.shakeAmount = 0.2; // shake on IT switch
     }
-    this.updateFirstPerson(dt, agents, this.fpAgentId);
+    this.updateFirstPerson(dt, agents, itAgentId);
   }
 
   // ===========================
@@ -327,8 +338,19 @@ export class SmartCamera {
 
   // === MODE SWITCHING ===
   setMode(mode) {
+    // Restore mesh visibility when leaving first-person
+    if ((this.mode === 'first' || this.mode === 'cycle') && mode !== 'first' && mode !== 'cycle') {
+      this.restoreAllMeshes();
+    }
     this.mode = mode;
     this.enabled = (mode !== 'free');
+  }
+
+  restoreAllMeshes() {
+    if (this._agents) {
+      this._agents.forEach(a => { a.mesh.visible = true; });
+    }
+    this.fpPrevAgentId = -1;
   }
 
   setFirstPersonAgent(agentId) {
@@ -341,7 +363,7 @@ export class SmartCamera {
       case 'ai': return 'AI Погоня';
       case 'first': return 'От 1-го лица';
       case 'spectator': return 'Обзор';
-      case 'cycle': return 'Авто-обзор';
+      case 'cycle': return 'Глаза Сифы';
       case 'free': return 'Свободная';
       default: return this.mode;
     }

@@ -1,8 +1,9 @@
 export class UIOverlay {
-  constructor(agentManager, sifaRules, smartCamera) {
+  constructor(agentManager, sifaRules, smartCamera, supervisorBot) {
     this.agentManager = agentManager;
     this.sifaRules = sifaRules;
     this.smartCamera = smartCamera;
+    this.supervisorBot = supervisorBot;
     this.scoreboard = document.getElementById('scoreboard');
     this.overlay = document.getElementById('ui-overlay');
     this.speechContainer = document.getElementById('speech-container');
@@ -49,6 +50,17 @@ export class UIOverlay {
     });
 
     html += `<br><small>Тегов: ${this.sifaRules.tagHistory.length}</small>`;
+
+    // Supervisor bot status
+    if (this.supervisorBot) {
+      const bot = this.supervisorBot;
+      const stateEmoji = { patrol: '🛸', approach: '🚨', rescue: '🔧', returnToPatrol: '↩️' };
+      const stateRu = { patrol: 'Патруль', approach: 'Лечу!', rescue: 'СПАСАЮ', returnToPatrol: 'Возврат' };
+      html += `<br><small>${stateEmoji[bot.state] || '🤖'} Робот: ${stateRu[bot.state] || bot.state}`;
+      if (bot.rescueCount > 0) html += ` · Спас: ${bot.rescueCount}`;
+      html += `</small>`;
+    }
+
     this.scoreboard.innerHTML = html;
   }
 
@@ -109,6 +121,31 @@ export class UIOverlay {
         if (bubble) bubble.style.display = 'none';
       }
     });
+
+    // Supervisor bot speech bubble
+    if (this.supervisorBot && this.supervisorBot.speechText && this.supervisorBot.speechTimer > 0) {
+      let botBubble = this.speechBubbles.get('bot');
+      if (!botBubble) {
+        botBubble = document.createElement('div');
+        botBubble.className = 'speech-bubble';
+        botBubble.style.background = 'rgba(68, 136, 255, 0.9)';
+        botBubble.style.color = '#fff';
+        botBubble.style.borderColor = '#44ddff';
+        this.speechContainer.appendChild(botBubble);
+        this.speechBubbles.set('bot', botBubble);
+      }
+      botBubble.textContent = '🤖 ' + this.supervisorBot.speechText;
+      botBubble.style.display = 'block';
+      const bx = this.supervisorBot.position.x;
+      const bz = this.supervisorBot.position.z;
+      const sx = (bx / 20 + 0.5) * window.innerWidth;
+      const sy = (0.2 - bz / 40) * window.innerHeight;
+      botBubble.style.left = sx + 'px';
+      botBubble.style.top = sy + 'px';
+    } else {
+      const botBubble = this.speechBubbles.get('bot');
+      if (botBubble) botBubble.style.display = 'none';
+    }
   }
 
   updateFirstPersonHud() {
@@ -162,6 +199,14 @@ export class UIOverlay {
       html += `<span style="color:${c}">● ${n.name}</span>: ${n.dist.toFixed(1)}м${marker}<br>`;
     });
     html += `</div>`;
+
+    // Supervisor bot status in FP
+    if (this.supervisorBot) {
+      const bot = this.supervisorBot;
+      if (bot.state === 'rescue' || bot.state === 'approach') {
+        html += `<div class="fp-bot" style="color:#44ddff">🤖 Робот: ${bot.speechText || 'Спасаю!'}</div>`;
+      }
+    }
 
     if (mode === 'cycle') {
       html += `<div class="fp-cycle">Авто-переключение</div>`;

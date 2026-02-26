@@ -8,6 +8,7 @@ import { UIOverlay } from '../renderer/UIOverlay.js';
 import { MusicPlayer } from '../audio/MusicPlayer.js';
 import { VoiceManager } from '../audio/VoiceManager.js';
 import { SmartCamera } from '../renderer/SmartCamera.js';
+import { SupervisorBot } from '../game/SupervisorBot.js';
 
 const CAMERA_MODES = ['ai', 'first', 'spectator', 'cycle', 'free'];
 
@@ -60,7 +61,10 @@ export class GameEngine {
     this.music = new MusicPlayer();
     this.voice = new VoiceManager();
     this.sifaRules = new SifaRules(this.agentManager, this.voice);
-    this.ui = new UIOverlay(this.agentManager, this.sifaRules, this.smartCamera);
+    // Supervisor rescue bot
+    this.supervisorBot = new SupervisorBot(this.scene);
+
+    this.ui = new UIOverlay(this.agentManager, this.sifaRules, this.smartCamera, this.supervisorBot);
 
     // Game loop
     this.fixedStep = 1 / 60;
@@ -99,11 +103,20 @@ export class GameEngine {
     this.sifaRules.initialize();
     this.lastTime = performance.now() / 1000;
 
-    // Start music on first user interaction
     const hint = document.getElementById('start-hint');
+    const btnCamera = document.getElementById('btn-camera');
+
+    // Auto-start in cycle mode (first-person auto-switching)
+    if (hint) hint.style.display = 'none';
+    this.setCameraMode('cycle');
+    if (btnCamera) this.updateCameraButton(btnCamera);
+
+    // Auto-start music (Electron allows autoplay, browser may block)
+    try { this.music.start(); } catch (_) { /* browser will need click */ }
+
+    // Fallback: start music on first user interaction (for browsers)
     const startAudio = () => {
       this.music.start();
-      if (hint) hint.style.display = 'none';
       document.removeEventListener('click', startAudio);
       document.removeEventListener('keydown', startAudio);
     };
@@ -113,7 +126,6 @@ export class GameEngine {
     // Control buttons
     const btnMusic = document.getElementById('btn-music');
     const btnVoice = document.getElementById('btn-voice');
-    const btnCamera = document.getElementById('btn-camera');
     let musicOn = true, voiceOn = true;
 
     btnMusic.addEventListener('click', (e) => {
@@ -201,6 +213,9 @@ export class GameEngine {
     // Render
     const alpha = this.accumulator / this.fixedStep;
     this.agentManager.interpolate(alpha);
+
+    // Supervisor bot update
+    this.supervisorBot.update(frameDt, this.agentManager.agents);
 
     // Camera update
     const mode = this.smartCamera.mode;
